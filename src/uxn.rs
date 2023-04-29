@@ -11,10 +11,10 @@ pub enum UxnError {
 pub const PAGE_PROGRAM: usize = 0x0100;
 const STACK_BYTE_COUNT: usize = 255;
 const RAM_BYTE_COUNT: usize = 64 * 1024;
-const IO_BYTE_COUNT: usize = 256;
+pub const IO_BYTE_COUNT: usize = 256;
 
 #[repr(u8)]
-#[derive(PartialEq)]
+#[derive(PartialEq, Debug)]
 enum OpCode {
     BRK = 0x00,
     INC = 0x01,
@@ -56,6 +56,7 @@ enum OpCode {
     LIT = 0x80,
 }
 
+#[derive(Debug)]
 struct Instruction {
     keep_mode: bool,
     short_mode: bool,
@@ -99,16 +100,20 @@ pub struct Stack {
     data: [u8; STACK_BYTE_COUNT],
 }
 
-pub const fn bytes_to_short(bytes: [u8; 2]) -> u16 {
-    let high = (bytes[0] as u16) << 8;
-    let low = bytes[1] as u16;
-    return high | low;
+pub fn bytes_to_short(bytes: [u8; 2]) -> u16 {
+    u16::from_le_bytes(bytes)
 }
 
-pub const fn short_to_bytes(short: u16) -> [u8; 2] {
-    let high = (short >> 8) as u8;
-    let low = (short & 0x0f) as u8;
-    return [high, low];
+pub fn short_to_bytes(short: u16) -> [u8; 2] {
+    u16::to_le_bytes(short)
+}
+
+pub fn short_from_host_byte_order(short: u16) -> u16 {
+    u16::to_le(short)
+}
+
+pub fn short_to_host_byte_order(short: u16) -> u16 {
+    u16::from_le(short)
 }
 
 impl Stack {
@@ -196,11 +201,23 @@ pub struct Uxn {
     ram: [u8; RAM_BYTE_COUNT],
     working_stack: Stack,
     return_stack: Stack,
-    pub io: [u8; IO_BYTE_COUNT],
 }
 
+/// Interface for interacting with the hosting environment
 pub trait Host {
+    /// Device input. Read data from a device
+    ///
+    /// * cpu - State of the machine
+    /// * target - device memory offset
+    /// * short mode - 16 bit or 8 bit
     fn dei(&mut self, cpu: &mut Uxn, target: u8, short_mode: bool) -> Option<u16>;
+
+    /// Device output. Write data to a device
+    ///
+    /// * cpu - State of the machine
+    /// * target - device memory offset
+    /// * value - data to write
+    /// * short mode - 16 bit or 8 bit
     fn deo(&mut self, cpu: &mut Uxn, target: u8, value: u16, short_mode: bool) -> Option<()>;
 }
 
@@ -536,7 +553,6 @@ impl Uxn {
             ram,
             working_stack: Default::default(),
             return_stack: Default::default(),
-            io: [0; IO_BYTE_COUNT],
         }
     }
 }
