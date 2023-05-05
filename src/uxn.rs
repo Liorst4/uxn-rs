@@ -428,7 +428,7 @@ impl Uxn {
             OpCode::JSR => {
                 let address = pop!()?;
                 done_taking_args!();
-                self.return_stack.push16(program_counter)?;
+                self.return_stack.push16(program_counter + 1)?;
                 jmp!(address);
             }
             OpCode::STH => {
