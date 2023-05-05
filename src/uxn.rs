@@ -336,7 +336,7 @@ impl Uxn {
             OpCode::INC => {
                 let a = pop!()?;
                 done_taking_args!();
-                push!(a + 1)?;
+                push!(a.overflowing_add(1).0)?;
             }
             OpCode::POP => {
                 pop!()?;
