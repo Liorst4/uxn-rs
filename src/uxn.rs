@@ -380,22 +380,22 @@ impl Uxn {
             OpCode::EQU => {
                 let b = pop!()?;
                 let a = pop!()?;
-                push!((a == b) as u16)?;
+                stack_to_use!().push8((a == b) as u8)?;
             }
             OpCode::NEQ => {
                 let b = pop!()?;
                 let a = pop!()?;
-                push!((a != b) as u16)?;
+                stack_to_use!().push8((a != b) as u8)?;
             }
             OpCode::GTH => {
                 let b = pop!()?;
                 let a = pop!()?;
-                push!((a > b) as u16)?;
+                stack_to_use!().push8((a > b) as u8)?;
             }
             OpCode::LTH => {
                 let b = pop!()?;
                 let a = pop!()?;
-                push!((a < b) as u16)?;
+                stack_to_use!().push8((a < b) as u8)?;
             }
             OpCode::JMP => {
                 let address = pop!()?;
