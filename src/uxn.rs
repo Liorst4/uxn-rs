@@ -101,19 +101,19 @@ pub struct Stack {
 }
 
 pub fn bytes_to_short(bytes: [u8; 2]) -> u16 {
-    u16::from_le_bytes(bytes)
+    u16::from_be_bytes(bytes)
 }
 
 pub fn short_to_bytes(short: u16) -> [u8; 2] {
-    u16::to_le_bytes(short)
+    u16::to_be_bytes(short)
 }
 
 pub fn short_from_host_byte_order(short: u16) -> u16 {
-    u16::to_le(short)
+    u16::to_be(short)
 }
 
 pub fn short_to_host_byte_order(short: u16) -> u16 {
-    u16::from_le(short)
+    u16::from_be(short)
 }
 
 impl Stack {
