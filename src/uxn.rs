@@ -153,8 +153,8 @@ impl Stack {
             return Err(UxnError::StackUnderflow);
         }
         return Ok(bytes_to_short([
-            self.data[self.head as usize],
-            self.data[(self.head + 1) as usize],
+            self.data[(self.head - 2) as usize],
+            self.data[(self.head - 1) as usize],
         ]));
     }
     fn pop16(&mut self) -> Result<u16, UxnError> {
