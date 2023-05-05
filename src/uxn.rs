@@ -314,7 +314,17 @@ impl Uxn {
                 if instruction.short_mode {
                     return Ok(StepResult::ProgramCounter($address));
                 }
-                return Ok(StepResult::ProgramCounter(program_counter + $address));
+
+                let diff: u8 = $address as u8;
+                let diff: i8 = unsafe { std::mem::transmute(diff) }; // TODO: Safe way
+                let diff: i16 = diff as i16;
+                let destination = program_counter
+                    .overflowing_add(1)
+                    .0
+                    .overflowing_add_signed(diff as i16)
+                    .0;
+
+                return Ok(StepResult::ProgramCounter(destination));
             };
         }
 
