@@ -434,7 +434,11 @@ impl Uxn {
             OpCode::STH => {
                 let a = pop!()?;
                 done_taking_args!();
-                self.return_stack.push(a, instruction.short_mode)?;
+                if instruction.return_mode {
+                    self.working_stack.push(a, instruction.short_mode)?;
+                } else {
+                    self.return_stack.push(a, instruction.short_mode)?;
+                }
             }
             OpCode::LDZ => {
                 let addr8 = stack_to_use!().pop8()?;
