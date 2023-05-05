@@ -5,7 +5,6 @@ pub enum UxnError {
     MathError,
     InvalidAddress,
     IOError,
-    Unsupported,
 }
 
 pub const PAGE_PROGRAM: usize = 0x0100;
@@ -328,6 +327,16 @@ impl Uxn {
             };
         }
 
+        macro_rules! jmp_to_literal {
+            () => {
+                let distance = self
+                    .read16(program_counter + 1)
+                    .ok_or(UxnError::InvalidAddress)?;
+                let destination = (program_counter + 3).overflowing_add(distance).0;
+                return Ok(StepResult::ProgramCounter(destination));
+            };
+        }
+
         let head_backup = stack_to_use!().head;
         // TODO: apply when something fails
         /// Undo pop side effects if we are in keep_mode
@@ -547,16 +556,18 @@ impl Uxn {
                 push!(result)?;
             }
             OpCode::JCI => {
-                // TODO
-                return Err(UxnError::Unsupported);
+                let cond8 = self.working_stack.pop8()?;
+                if cond8 == 0 {
+                    return Ok(StepResult::ProgramCounter(program_counter + 3));
+                }
+                jmp_to_literal!();
             }
             OpCode::JMI => {
-                // TODO
-                return Err(UxnError::Unsupported);
+                jmp_to_literal!();
             }
             OpCode::JSI => {
-                // TODO
-                return Err(UxnError::Unsupported);
+                self.return_stack.push16(program_counter + 3)?;
+                jmp_to_literal!();
             }
             OpCode::LIT => {
                 let literal = read!(program_counter + 1)?;
