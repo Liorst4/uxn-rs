@@ -126,14 +126,11 @@ impl Stack {
         self.head += 1;
         return Ok(());
     }
-    fn peek8(&self) -> Result<u8, UxnError> {
+    fn pop8(&mut self) -> Result<u8, UxnError> {
         if self.head == 0 {
             return Err(UxnError::StackUnderflow);
         }
-        return Ok(self.data[(self.head - 1) as usize]);
-    }
-    fn pop8(&mut self) -> Result<u8, UxnError> {
-        let result = self.peek8()?;
+        let result = self.data[(self.head - 1) as usize];
         self.head -= 1;
         return Ok(result);
     }
@@ -148,17 +145,14 @@ impl Stack {
         self.head += 2;
         return Ok(());
     }
-    fn peek16(&self) -> Result<u16, UxnError> {
+    fn pop16(&mut self) -> Result<u16, UxnError> {
         if self.head < 2 {
             return Err(UxnError::StackUnderflow);
         }
-        return Ok(bytes_to_short([
+        let result = bytes_to_short([
             self.data[(self.head - 2) as usize],
             self.data[(self.head - 1) as usize],
-        ]));
-    }
-    fn pop16(&mut self) -> Result<u16, UxnError> {
-        let result = self.peek16()?;
+        ]);
         self.head -= 2;
         return Ok(result);
     }
@@ -169,22 +163,12 @@ impl Stack {
         }
         return self.push8(data as u8);
     }
-    fn pop(&mut self, short_mode: bool, keep_mode: bool) -> Result<u16, UxnError> {
+    fn pop(&mut self, short_mode: bool) -> Result<u16, UxnError> {
         if short_mode {
-            if keep_mode {
-                return self.peek16();
-            }
             return self.pop16();
         }
 
-        return {
-            if keep_mode {
-                self.peek8()
-            } else {
-                self.pop8()
-            }
-        }
-        .map(|x| x as u16);
+        return self.pop8().map(|x| x as u16);
     }
 }
 
@@ -293,7 +277,7 @@ impl Uxn {
         }
         macro_rules! pop {
             () => {
-                stack_to_use!().pop(instruction.short_mode, instruction.keep_mode)
+                stack_to_use!().pop(instruction.short_mode)
             };
         }
         macro_rules! push {
@@ -334,25 +318,40 @@ impl Uxn {
             };
         }
 
+        let head_backup = stack_to_use!().head;
+        // TODO: apply when something fails
+        /// Undo pop side effects if we are in keep_mode
+        macro_rules! done_taking_args {
+            () => {
+                if instruction.keep_mode {
+                    stack_to_use!().head = head_backup;
+                }
+            };
+        }
+
         match instruction.operation {
             OpCode::BRK => {
                 return Ok(StepResult::Break);
             }
             OpCode::INC => {
                 let a = pop!()?;
+                done_taking_args!();
                 push!(a + 1)?;
             }
             OpCode::POP => {
                 pop!()?;
+                done_taking_args!();
             }
             OpCode::NIP => {
                 let b = pop!()?;
                 pop!()?; // a
+                done_taking_args!();
                 push!(b)?;
             }
             OpCode::SWP => {
                 let b = pop!()?;
                 let a = pop!()?;
+                done_taking_args!();
                 push!(b)?;
                 push!(a)?;
             }
@@ -360,19 +359,21 @@ impl Uxn {
                 let c = pop!()?;
                 let b = pop!()?;
                 let a = pop!()?;
-
+                done_taking_args!();
                 push!(b)?;
                 push!(c)?;
                 push!(a)?;
             }
             OpCode::DUP => {
                 let a = pop!()?;
+                done_taking_args!();
                 push!(a)?;
                 push!(a)?;
             }
             OpCode::OVR => {
                 let b = pop!()?;
                 let a = pop!()?;
+                done_taking_args!();
                 push!(a)?;
                 push!(b)?;
                 push!(a)?;
@@ -380,55 +381,66 @@ impl Uxn {
             OpCode::EQU => {
                 let b = pop!()?;
                 let a = pop!()?;
+                done_taking_args!();
                 stack_to_use!().push8((a == b) as u8)?;
             }
             OpCode::NEQ => {
                 let b = pop!()?;
                 let a = pop!()?;
+                done_taking_args!();
                 stack_to_use!().push8((a != b) as u8)?;
             }
             OpCode::GTH => {
                 let b = pop!()?;
                 let a = pop!()?;
+                done_taking_args!();
                 stack_to_use!().push8((a > b) as u8)?;
             }
             OpCode::LTH => {
                 let b = pop!()?;
                 let a = pop!()?;
+                done_taking_args!();
                 stack_to_use!().push8((a < b) as u8)?;
             }
             OpCode::JMP => {
                 let address = pop!()?;
+                done_taking_args!();
                 jmp!(address);
             }
             OpCode::JCN => {
                 let cond8 = stack_to_use!().pop8()?;
                 let address = pop!()?;
+                done_taking_args!();
                 if cond8 != 0 {
                     jmp!(address);
                 }
             }
             OpCode::JSR => {
                 let address = pop!()?;
+                done_taking_args!();
                 self.return_stack.push16(program_counter)?;
                 jmp!(address);
             }
             OpCode::STH => {
                 let a = pop!()?;
+                done_taking_args!();
                 self.return_stack.push(a, instruction.short_mode)?;
             }
             OpCode::LDZ => {
                 let addr8 = stack_to_use!().pop8()?;
+                done_taking_args!();
                 let value = read!(addr8 as u16)?;
                 push!(value)?;
             }
             OpCode::STZ => {
                 let addr8 = stack_to_use!().pop8()?;
+                done_taking_args!();
                 let val = pop!()?;
                 write!(addr8 as u16, val)?;
             }
             OpCode::LDR => {
                 let distance = stack_to_use!().pop8()?;
+                done_taking_args!();
                 let addr = program_counter + (distance as u16);
                 let value = read!(addr)?;
                 push!(value)?;
@@ -437,46 +449,55 @@ impl Uxn {
                 let distance = stack_to_use!().pop8()?;
                 let addr = program_counter + (distance as u16);
                 let val = pop!()?;
+                done_taking_args!();
                 write!(addr, val)?;
             }
             OpCode::LDA => {
                 let addr = stack_to_use!().pop16()?;
+                done_taking_args!();
                 let value = read!(addr)?;
                 push!(value)?;
             }
             OpCode::STA => {
                 let addr = stack_to_use!().pop16()?;
                 let val = pop!()?;
+                done_taking_args!();
                 write!(addr, val)?;
             }
             OpCode::DEI => {
                 let target = stack_to_use!().pop8()?;
+                done_taking_args!();
                 let value = dei!(target)?;
                 push!(value)?;
             }
             OpCode::DEO => {
                 let target = stack_to_use!().pop8()?;
                 let val = pop!()?;
+                done_taking_args!();
                 deo!(target, val)?;
             }
             OpCode::ADD => {
                 let b = pop!()?;
                 let a = pop!()?;
+                done_taking_args!();
                 push!(a.overflowing_add(b).0)?;
             }
             OpCode::SUB => {
                 let b = pop!()?;
                 let a = pop!()?;
+                done_taking_args!();
                 push!(a.overflowing_sub(b).0)?;
             }
             OpCode::MUL => {
                 let b = pop!()?;
                 let a = pop!()?;
+                done_taking_args!();
                 push!(a.overflowing_mul(b).0)?;
             }
             OpCode::DIV => {
                 let b = pop!()?;
                 let a = pop!()?;
+                done_taking_args!();
                 if b == 0 {
                     return Err(UxnError::MathError);
                 }
@@ -485,21 +506,25 @@ impl Uxn {
             OpCode::AND => {
                 let b = pop!()?;
                 let a = pop!()?;
+                done_taking_args!();
                 push!(a & b)?;
             }
             OpCode::ORA => {
                 let b = pop!()?;
                 let a = pop!()?;
+                done_taking_args!();
                 push!(a | b)?;
             }
             OpCode::EOR => {
                 let b = pop!()?;
                 let a = pop!()?;
+                done_taking_args!();
                 push!(a ^ b)?;
             }
             OpCode::SFT => {
                 let shift8 = stack_to_use!().pop8()?;
                 let a = pop!()?;
+                done_taking_args!();
 
                 let high_nibble = (shift8 & 0xf0) >> 4;
                 let low_nibble = shift8 & 0x0f;
