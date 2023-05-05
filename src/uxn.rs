@@ -408,8 +408,8 @@ impl Uxn {
                 jmp!(address);
             }
             OpCode::JCN => {
-                let cond8 = stack_to_use!().pop8()?;
                 let address = pop!()?;
+                let cond8 = stack_to_use!().pop8()?;
                 done_taking_args!();
                 if cond8 != 0 {
                     jmp!(address);
