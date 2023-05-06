@@ -650,6 +650,10 @@ impl Uxn {
     }
 
     pub fn eval(&mut self, mm: &mut dyn Host, program_counter: u16) -> Result<(), UxnError> {
+        if program_counter == 0 {
+            return Ok(());
+        }
+
         let mut program_counter = program_counter;
         loop {
             match self.step(mm, program_counter)? {
