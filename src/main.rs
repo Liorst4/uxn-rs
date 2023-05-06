@@ -10,5 +10,5 @@ fn main() {
     let mut rom = vec![];
     let mut file = fs::File::open(args.nth(1).unwrap()).unwrap();
     file.read_to_end(&mut rom).unwrap();
-    cli::run_uxncli(&rom);
+    cli::run_uxncli(&rom, std::env::args());
 }

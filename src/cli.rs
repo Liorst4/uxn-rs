@@ -148,22 +148,52 @@ impl uxn::Host for UxnCli {
     }
 }
 
-pub fn run_uxncli(rom: &[u8]) {
+fn inject_console_byte(
+    vm: &mut uxn::Uxn,
+    host: &mut UxnCli,
+    byte: u8,
+    kind: ConsoleType,
+) -> Result<(), uxn::UxnError> {
+    host.console.console_type = kind;
+    host.console.read = byte;
+    let entry = uxn::short_to_host_byte_order(host.console.vector);
+    return vm.eval(host, entry);
+}
+
+pub fn run_uxncli(rom: &[u8], args: std::env::Args) {
     let mut vm = uxn::Uxn::boot(rom);
     let mut host = UxnCli::default();
     vm.eval(&mut host, uxn::PAGE_PROGRAM as u16).unwrap();
 
-    // TODO: argv
+    // Process arguments
+    let args_len = args.len();
+    for (i, arg) in args.enumerate() {
+        if i == 0 {
+            continue;
+        }
+        for c in arg.as_bytes() {
+            inject_console_byte(&mut vm, &mut host, *c, ConsoleType::Argument).unwrap();
+        }
+        inject_console_byte(
+            &mut vm,
+            &mut host,
+            '\n' as u8,
+            if i == (args_len - 1) {
+                ConsoleType::ArgumentEnd
+            } else {
+                ConsoleType::ArgumentSeparator
+            },
+        )
+        .unwrap();
+    }
 
-    host.console.console_type = ConsoleType::StdIn;
+    // Process input
     while host.system.state == 0 {
         let mut byte = [0];
         match std::io::stdin().read(&mut byte) {
             Ok(amount_read) => {
                 if amount_read != 0 {
-                    host.console.read = byte[0];
-                    let entry = uxn::short_to_host_byte_order(host.console.vector);
-                    vm.eval(&mut host, entry).unwrap();
+                    inject_console_byte(&mut vm, &mut host, byte[0], ConsoleType::StdIn).unwrap();
                 }
             }
             _ => break,
