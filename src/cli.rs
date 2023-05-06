@@ -22,7 +22,7 @@ impl Default for ConsoleType {
 struct System {
     halt: u16,
     expansion: u16,
-    _pad: u16,
+    friend: u16,
     metadata: u16,
     _red: u16,
     _green: u16,
