@@ -426,7 +426,7 @@ impl Uxn {
                         }
 
                         let diff: u8 = $address as u8;
-                        let diff: i8 = unsafe { std::mem::transmute(diff) }; // TODO: Safe way
+                        let diff: i8 = diff as i8;
                         let diff: i16 = diff as i16;
                         let destination = program_counter
                             .overflowing_add(1)
