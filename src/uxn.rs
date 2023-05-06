@@ -140,8 +140,8 @@ impl From<u8> for Instruction {
 }
 
 pub struct Stack {
-    head: u8,
-    data: [u8; STACK_BYTE_COUNT],
+    pub head: u8,
+    pub data: [u8; STACK_BYTE_COUNT],
 }
 
 pub fn bytes_to_short(bytes: [u8; 2]) -> u16 {
@@ -226,9 +226,9 @@ impl Default for Stack {
 }
 
 pub struct Uxn {
-    ram: [u8; RAM_BYTE_COUNT],
-    working_stack: Stack,
-    return_stack: Stack,
+    pub ram: [u8; RAM_BYTE_COUNT],
+    pub working_stack: Stack,
+    pub return_stack: Stack,
 }
 
 /// Interface for interacting with the hosting environment

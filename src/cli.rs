@@ -149,6 +149,14 @@ macro_rules! targeted_device_field {
     }};
 }
 
+impl std::fmt::Display for uxn::Stack {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
+        let head = self.head as usize;
+        let data = &self.data[0..head];
+        write!(f, "{:x?}", data)
+    }
+}
+
 impl uxn::Host for UxnCli {
     fn dei(&mut self, _cpu: &mut uxn::Uxn, target: u8, short_mode: bool) -> Option<u16> {
         if short_mode {
@@ -158,7 +166,7 @@ impl uxn::Host for UxnCli {
         }
     }
 
-    fn deo(&mut self, _cpu: &mut uxn::Uxn, target: u8, value: u16, short_mode: bool) -> Option<()> {
+    fn deo(&mut self, cpu: &mut uxn::Uxn, target: u8, value: u16, short_mode: bool) -> Option<()> {
         if short_mode {
             self.write16(target, value)?;
         } else {
@@ -173,6 +181,12 @@ impl uxn::Host for UxnCli {
         if targeted_device_field!(target, short_mode, console, error) {
             let bytes = [self.console.error];
             std::io::stderr().write(&bytes).unwrap();
+        }
+
+        if targeted_device_field!(target, short_mode, system, debug) && self.system.debug != 0 {
+            eprintln!("Working stack: {}", cpu.working_stack);
+            eprintln!("Return stack: {}", cpu.return_stack);
+            std::io::stderr().flush().unwrap();
         }
 
         Some(())
