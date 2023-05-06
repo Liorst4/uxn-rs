@@ -134,6 +134,21 @@ impl<'a> UxnCli {
     }
 }
 
+macro_rules! targeted_device_field {
+    ($target:expr, $short_mode:expr, $device:ident, $field: ident) => {{
+        let base: *const UxnCli = std::ptr::null();
+        let offset = unsafe { std::ptr::addr_of!((*base).$device.$field) };
+        let offset: usize = unsafe { std::mem::transmute(offset) };
+        let offset: u8 = offset as u8;
+
+        if $short_mode {
+            ($target == offset) || (($target - 1) == offset)
+        } else {
+            $target == offset
+        }
+    }};
+}
+
 impl uxn::Host for UxnCli {
     fn dei(&mut self, _cpu: &mut uxn::Uxn, target: u8, short_mode: bool) -> Option<u16> {
         if short_mode {
@@ -150,10 +165,7 @@ impl uxn::Host for UxnCli {
             self.write8(target, value as u8)?;
         }
 
-        // TODO: Macro for offset_of
-
-        if target == 0x18 {
-            // self.console.write
+        if targeted_device_field!(target, short_mode, console, write) {
             print!("{}", self.console.write as char);
         }
 
