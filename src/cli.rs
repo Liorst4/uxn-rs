@@ -57,6 +57,21 @@ struct File {
     write: u16,
 }
 
+#[derive(Default)]
+#[repr(packed(1))]
+struct DateTime {
+    year: u16,
+    month: u8,
+    day: u8,
+    hour: u8,
+    minute: u8,
+    second: u8,
+    dotw: u8,
+    doty: u16,
+    isdst: u8,
+    _pad: [u8; 5],
+}
+
 /// A subset of the varvara machine
 /// Supports the system, console, file and datetime devices
 #[repr(packed(1))]
@@ -65,7 +80,8 @@ struct UxnCli {
     console: Console,
     _pad: [u8; 0x80],
     file: [File; 2],
-    __pad: [u8; 0x40],
+    datetime: DateTime,
+    __pad: [u8; 0x30],
 }
 
 impl Default for UxnCli {
@@ -75,7 +91,8 @@ impl Default for UxnCli {
             console: Default::default(),
             _pad: [0; 0x80],
             file: Default::default(),
-            __pad: [0; 0x40],
+            datetime: Default::default(),
+            __pad: [0; 0x30],
         }
     }
 }
