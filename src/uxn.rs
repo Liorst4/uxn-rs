@@ -12,84 +12,129 @@ const STACK_BYTE_COUNT: usize = 255;
 const RAM_BYTE_COUNT: usize = 64 * 1024;
 pub const IO_BYTE_COUNT: usize = 256;
 
-#[repr(u8)]
-#[derive(PartialEq, Debug)]
-enum OpCode {
-    BRK = 0x00,
-    INC = 0x01,
-    POP = 0x02,
-    NIP = 0x03,
-    SWP = 0x04,
-    ROT = 0x05,
-    DUP = 0x06,
-    OVR = 0x07,
-    EQU = 0x08,
-    NEQ = 0x09,
-    GTH = 0x0A,
-    LTH = 0x0B,
-    JMP = 0x0C,
-    JCN = 0x0D,
-    JSR = 0x0E,
-    STH = 0x0F,
-    LDZ = 0x10,
-    STZ = 0x11,
-    LDR = 0x12,
-    STR = 0x13,
-    LDA = 0x14,
-    STA = 0x15,
-    DEI = 0x16,
-    DEO = 0x17,
-    ADD = 0x18,
-    SUB = 0x19,
-    MUL = 0x1A,
-    DIV = 0x1B,
-    AND = 0x1C,
-    ORA = 0x1D,
-    EOR = 0x1E,
-    SFT = 0x1F,
-
-    // BRK derivatives
-    JCI = 0x20,
-    JMI = 0x40,
-    JSI = 0x60,
-    LIT = 0x80,
+/// Instruction without different modes
+enum SimpleOperation {
+    Break,                  // BRK
+    JumpConditionalInstant, // JCI
+    JumpInstant,            // JMI
+    JumpStashReturnIsntant, // JSI
 }
 
-#[derive(Debug)]
-struct Instruction {
+struct ComplexOperationFlags {
     keep_mode: bool,
     short_mode: bool,
     return_mode: bool,
-    operation: OpCode,
+}
+
+/// Instructions that support all the modes
+enum ComplexOperation {
+    Increase,        // INC
+    Pop,             // POP
+    Nip,             // NIP
+    Swap,            // SWP
+    Rotate,          // ROT
+    Duplicate,       // DUP
+    Over,            // OVR
+    Equal,           // EQU
+    NotEqual,        // NEQ
+    GreaterThan,     // GTH
+    LesserThan,      // LTH
+    Jump,            // JMP
+    JumpConditional, // JCN
+    JumpStashReturn, // JSR
+    Stash,           // STH
+    LoadZeroPage,    // LDZ
+    StoreZeroPage,   // STZ
+    LoadRelative,    // LDR
+    StoreRelative,   // STR
+    LoadAbsolute,    // LDA
+    StoreAbsolute,   // STA
+    DeviceInput,     // DEI
+    DeviceOutput,    // DEO
+    Add,             // ADD
+    Subtract,        // SUB
+    Multiply,        // MUL
+    Divide,          // DIV
+    And,             // AND
+    Or,              // ORA
+    ExclusiveOr,     // EOR
+    Shift,           // SFT
+}
+
+enum Instruction {
+    Simple(SimpleOperation),
+    Literal { short_mode: bool, return_mode: bool }, // LIT (supports only 2 modes)
+    Complex(ComplexOperation, ComplexOperationFlags),
 }
 
 impl From<u8> for Instruction {
     fn from(byte: u8) -> Self {
-        const KEEP_MODE_MASK: u8 = 0b10000000;
-        const SHORT_MODE_MASK: u8 = 0b00100000;
-        const RETURN_MODE_MASK: u8 = 0b01000000;
-        const OPCODE_MASK: u8 = !(KEEP_MODE_MASK | SHORT_MODE_MASK | RETURN_MODE_MASK);
+        return match byte {
+            0x00 => Instruction::Simple(SimpleOperation::Break),
+            0x20 => Instruction::Simple(SimpleOperation::JumpConditionalInstant),
+            0x40 => Instruction::Simple(SimpleOperation::JumpInstant),
+            0x60 => Instruction::Simple(SimpleOperation::JumpStashReturnIsntant),
+            _ => {
+                const KEEP_MODE_MASK: u8 = 0b10000000;
+                const SHORT_MODE_MASK: u8 = 0b00100000;
+                const RETURN_MODE_MASK: u8 = 0b01000000;
+                const OPCODE_MASK: u8 = !(KEEP_MODE_MASK | SHORT_MODE_MASK | RETURN_MODE_MASK);
 
-        let keep_mode = (byte & KEEP_MODE_MASK) != 0;
-        let short_mode = (byte & SHORT_MODE_MASK) != 0;
-        let return_mode = (byte & RETURN_MODE_MASK) != 0;
+                let short_mode = (byte & SHORT_MODE_MASK) != 0;
+                let return_mode = (byte & RETURN_MODE_MASK) != 0;
+                let opcode = byte & OPCODE_MASK;
 
-        // TODO: Without unsafe
-        let mut operation: OpCode = unsafe { std::mem::transmute(byte & OPCODE_MASK) };
-        if operation == OpCode::BRK {
-            if keep_mode {
-                operation = OpCode::LIT;
-            } else {
-                // BRK JCI JMI JSI
-                operation = unsafe { std::mem::transmute(byte) }
+                match opcode {
+                    0x00 => Instruction::Literal {
+                        short_mode,
+                        return_mode,
+                    },
+                    complex_opcode => {
+                        let keep_mode = (byte & KEEP_MODE_MASK) != 0;
+                        Instruction::Complex(
+                            match complex_opcode {
+                                0x01 => ComplexOperation::Increase,
+                                0x02 => ComplexOperation::Pop,
+                                0x03 => ComplexOperation::Nip,
+                                0x04 => ComplexOperation::Swap,
+                                0x05 => ComplexOperation::Rotate,
+                                0x06 => ComplexOperation::Duplicate,
+                                0x07 => ComplexOperation::Over,
+                                0x08 => ComplexOperation::Equal,
+                                0x09 => ComplexOperation::NotEqual,
+                                0x0A => ComplexOperation::GreaterThan,
+                                0x0B => ComplexOperation::LesserThan,
+                                0x0C => ComplexOperation::Jump,
+                                0x0D => ComplexOperation::JumpConditional,
+                                0x0E => ComplexOperation::JumpStashReturn,
+                                0x0F => ComplexOperation::Stash,
+                                0x10 => ComplexOperation::LoadZeroPage,
+                                0x11 => ComplexOperation::StoreZeroPage,
+                                0x12 => ComplexOperation::LoadRelative,
+                                0x13 => ComplexOperation::StoreRelative,
+                                0x14 => ComplexOperation::LoadAbsolute,
+                                0x15 => ComplexOperation::StoreAbsolute,
+                                0x16 => ComplexOperation::DeviceInput,
+                                0x17 => ComplexOperation::DeviceOutput,
+                                0x18 => ComplexOperation::Add,
+                                0x19 => ComplexOperation::Subtract,
+                                0x1A => ComplexOperation::Multiply,
+                                0x1B => ComplexOperation::Divide,
+                                0x1C => ComplexOperation::And,
+                                0x1D => ComplexOperation::Or,
+                                0x1E => ComplexOperation::ExclusiveOr,
+                                0x1F => ComplexOperation::Shift,
+                                _ => unreachable!(),
+                            },
+                            ComplexOperationFlags {
+                                keep_mode,
+                                short_mode,
+                                return_mode,
+                            },
+                        )
+                    }
+                }
             }
-        }
-
-        return Instruction {
-            keep_mode,
-            short_mode,
-            return_mode,
-            operation,
         };
     }
 }
@@ -260,6 +305,9 @@ impl Uxn {
     }
 
     fn step(&mut self, host: &mut dyn Host, program_counter: u16) -> Result<StepResult, UxnError> {
+        let short_mode: bool;
+        let return_mode: bool;
+
         let instruction = Instruction::from(
             self.read8(program_counter)
                 .ok_or(UxnError::InvalidAddress)?,
@@ -267,315 +315,334 @@ impl Uxn {
 
         macro_rules! stack_to_use {
             () => {
-                if instruction.return_mode {
+                if return_mode {
                     &mut self.return_stack
                 } else {
                     &mut self.working_stack
                 }
             };
         }
-        macro_rules! pop {
-            () => {
-                stack_to_use!().pop(instruction.short_mode)
-            };
-        }
         macro_rules! push {
             ($value:expr) => {
-                stack_to_use!().push($value, instruction.short_mode)
-            };
-        }
-        macro_rules! write {
-            ($address:expr, $value:expr) => {
-                self.write($address, $value, instruction.short_mode)
-                    .ok_or(UxnError::InvalidAddress)
+                stack_to_use!().push($value, short_mode)
             };
         }
         macro_rules! read {
             ($address:expr) => {
-                self.read($address, instruction.short_mode)
+                self.read($address, short_mode)
                     .ok_or(UxnError::InvalidAddress)
             };
         }
-        macro_rules! dei {
-            ($target:expr) => {
-                host.dei(self, $target, instruction.short_mode)
-                    .ok_or(UxnError::IOError)
-            };
-        }
-        macro_rules! deo {
-            ($target:expr, $value:expr) => {
-                host.deo(self, $target, $value, instruction.short_mode)
-                    .ok_or(UxnError::IOError)
-            };
-        }
-        macro_rules! jmp {
-            ($address: expr) => {
-                if instruction.short_mode {
-                    return Ok(StepResult::ProgramCounter($address));
+
+        match instruction {
+            Instruction::Simple(opcode) => {
+                macro_rules! jmp_to_literal {
+                    () => {
+                        let distance = self
+                            .read16(program_counter + 1)
+                            .ok_or(UxnError::InvalidAddress)?;
+                        let destination = (program_counter + 3).overflowing_add(distance).0;
+                        return Ok(StepResult::ProgramCounter(destination));
+                    };
                 }
 
-                let diff: u8 = $address as u8;
-                let diff: i8 = unsafe { std::mem::transmute(diff) }; // TODO: Safe way
-                let diff: i16 = diff as i16;
-                let destination = program_counter
-                    .overflowing_add(1)
-                    .0
-                    .overflowing_add_signed(diff as i16)
-                    .0;
-
-                return Ok(StepResult::ProgramCounter(destination));
-            };
-        }
-
-        macro_rules! jmp_to_literal {
-            () => {
-                let distance = self
-                    .read16(program_counter + 1)
-                    .ok_or(UxnError::InvalidAddress)?;
-                let destination = (program_counter + 3).overflowing_add(distance).0;
-                return Ok(StepResult::ProgramCounter(destination));
-            };
-        }
-
-        let head_backup = stack_to_use!().head;
-        // TODO: apply when something fails
-        /// Undo pop side effects if we are in keep_mode
-        macro_rules! done_taking_args {
-            () => {
-                if instruction.keep_mode {
-                    stack_to_use!().head = head_backup;
-                }
-            };
-        }
-
-        match instruction.operation {
-            OpCode::BRK => {
-                return Ok(StepResult::Break);
-            }
-            OpCode::INC => {
-                let a = pop!()?;
-                done_taking_args!();
-                push!(a.overflowing_add(1).0)?;
-            }
-            OpCode::POP => {
-                pop!()?;
-                done_taking_args!();
-            }
-            OpCode::NIP => {
-                let b = pop!()?;
-                pop!()?; // a
-                done_taking_args!();
-                push!(b)?;
-            }
-            OpCode::SWP => {
-                let b = pop!()?;
-                let a = pop!()?;
-                done_taking_args!();
-                push!(b)?;
-                push!(a)?;
-            }
-            OpCode::ROT => {
-                let c = pop!()?;
-                let b = pop!()?;
-                let a = pop!()?;
-                done_taking_args!();
-                push!(b)?;
-                push!(c)?;
-                push!(a)?;
-            }
-            OpCode::DUP => {
-                let a = pop!()?;
-                done_taking_args!();
-                push!(a)?;
-                push!(a)?;
-            }
-            OpCode::OVR => {
-                let b = pop!()?;
-                let a = pop!()?;
-                done_taking_args!();
-                push!(a)?;
-                push!(b)?;
-                push!(a)?;
-            }
-            OpCode::EQU => {
-                let b = pop!()?;
-                let a = pop!()?;
-                done_taking_args!();
-                stack_to_use!().push8((a == b) as u8)?;
-            }
-            OpCode::NEQ => {
-                let b = pop!()?;
-                let a = pop!()?;
-                done_taking_args!();
-                stack_to_use!().push8((a != b) as u8)?;
-            }
-            OpCode::GTH => {
-                let b = pop!()?;
-                let a = pop!()?;
-                done_taking_args!();
-                stack_to_use!().push8((a > b) as u8)?;
-            }
-            OpCode::LTH => {
-                let b = pop!()?;
-                let a = pop!()?;
-                done_taking_args!();
-                stack_to_use!().push8((a < b) as u8)?;
-            }
-            OpCode::JMP => {
-                let address = pop!()?;
-                done_taking_args!();
-                jmp!(address);
-            }
-            OpCode::JCN => {
-                let address = pop!()?;
-                let cond8 = stack_to_use!().pop8()?;
-                done_taking_args!();
-                if cond8 != 0 {
-                    jmp!(address);
+                match opcode {
+                    SimpleOperation::Break => {
+                        return Ok(StepResult::Break);
+                    }
+                    SimpleOperation::JumpConditionalInstant => {
+                        let cond8 = self.working_stack.pop8()?;
+                        if cond8 == 0 {
+                            return Ok(StepResult::ProgramCounter(program_counter + 3));
+                        }
+                        jmp_to_literal!();
+                    }
+                    SimpleOperation::JumpInstant => {
+                        jmp_to_literal!();
+                    }
+                    SimpleOperation::JumpStashReturnIsntant => {
+                        self.return_stack.push16(program_counter + 3)?;
+                        jmp_to_literal!();
+                    }
                 }
             }
-            OpCode::JSR => {
-                let address = pop!()?;
-                done_taking_args!();
-                self.return_stack.push16(program_counter + 1)?;
-                jmp!(address);
-            }
-            OpCode::STH => {
-                let a = pop!()?;
-                done_taking_args!();
-                if instruction.return_mode {
-                    self.working_stack.push(a, instruction.short_mode)?;
-                } else {
-                    self.return_stack.push(a, instruction.short_mode)?;
-                }
-            }
-            OpCode::LDZ => {
-                let addr8 = stack_to_use!().pop8()?;
-                done_taking_args!();
-                let value = read!(addr8 as u16)?;
-                push!(value)?;
-            }
-            OpCode::STZ => {
-                let addr8 = stack_to_use!().pop8()?;
-                done_taking_args!();
-                let val = pop!()?;
-                write!(addr8 as u16, val)?;
-            }
-            OpCode::LDR => {
-                let distance = stack_to_use!().pop8()?;
-                done_taking_args!();
-                let addr = program_counter - (PAGE_PROGRAM as u16) + (distance as u16);
-                let value = read!(addr)?;
-                push!(value)?;
-            }
-            OpCode::STR => {
-                let distance = stack_to_use!().pop8()?;
-                let addr = program_counter - (PAGE_PROGRAM as u16) + (distance as u16);
-                let val = pop!()?;
-                done_taking_args!();
-                write!(addr, val)?;
-            }
-            OpCode::LDA => {
-                let addr = stack_to_use!().pop16()?;
-                done_taking_args!();
-                let value = read!(addr)?;
-                push!(value)?;
-            }
-            OpCode::STA => {
-                let addr = stack_to_use!().pop16()?;
-                let val = pop!()?;
-                done_taking_args!();
-                write!(addr, val)?;
-            }
-            OpCode::DEI => {
-                let target = stack_to_use!().pop8()?;
-                done_taking_args!();
-                let value = dei!(target)?;
-                push!(value)?;
-            }
-            OpCode::DEO => {
-                let target = stack_to_use!().pop8()?;
-                let val = pop!()?;
-                done_taking_args!();
-                deo!(target, val)?;
-            }
-            OpCode::ADD => {
-                let b = pop!()?;
-                let a = pop!()?;
-                done_taking_args!();
-                push!(a.overflowing_add(b).0)?;
-            }
-            OpCode::SUB => {
-                let b = pop!()?;
-                let a = pop!()?;
-                done_taking_args!();
-                push!(a.overflowing_sub(b).0)?;
-            }
-            OpCode::MUL => {
-                let b = pop!()?;
-                let a = pop!()?;
-                done_taking_args!();
-                push!(a.overflowing_mul(b).0)?;
-            }
-            OpCode::DIV => {
-                let b = pop!()?;
-                let a = pop!()?;
-                done_taking_args!();
-                if b == 0 {
-                    return Err(UxnError::MathError);
-                }
-                push!(a.overflowing_div(b).0)?;
-            }
-            OpCode::AND => {
-                let b = pop!()?;
-                let a = pop!()?;
-                done_taking_args!();
-                push!(a & b)?;
-            }
-            OpCode::ORA => {
-                let b = pop!()?;
-                let a = pop!()?;
-                done_taking_args!();
-                push!(a | b)?;
-            }
-            OpCode::EOR => {
-                let b = pop!()?;
-                let a = pop!()?;
-                done_taking_args!();
-                push!(a ^ b)?;
-            }
-            OpCode::SFT => {
-                let shift8 = stack_to_use!().pop8()?;
-                let a = pop!()?;
-                done_taking_args!();
-
-                let high_nibble = (shift8 & 0xf0) >> 4;
-                let low_nibble = shift8 & 0x0f;
-
-                let result = (a >> low_nibble) << high_nibble;
-                push!(result)?;
-            }
-            OpCode::JCI => {
-                let cond8 = self.working_stack.pop8()?;
-                if cond8 == 0 {
-                    return Ok(StepResult::ProgramCounter(program_counter + 3));
-                }
-                jmp_to_literal!();
-            }
-            OpCode::JMI => {
-                jmp_to_literal!();
-            }
-            OpCode::JSI => {
-                self.return_stack.push16(program_counter + 3)?;
-                jmp_to_literal!();
-            }
-            OpCode::LIT => {
+            Instruction::Literal {
+                short_mode: short_mode_,
+                return_mode: return_mode_,
+            } => {
+                short_mode = short_mode_;
+                return_mode = return_mode_;
                 let literal = read!(program_counter + 1)?;
                 push!(literal)?;
-                if instruction.short_mode {
+                if short_mode {
                     return Ok(StepResult::ProgramCounter(program_counter + 3));
                 }
                 return Ok(StepResult::ProgramCounter(program_counter + 2));
+            }
+            Instruction::Complex(opcode, flags) => {
+                short_mode = flags.short_mode;
+                return_mode = flags.return_mode;
+                let head_backup = stack_to_use!().head;
+
+                // TODO: apply when something fails
+                /// Undo pop side effects if we are in keep_mode
+                macro_rules! done_taking_args {
+                    () => {
+                        if flags.keep_mode {
+                            stack_to_use!().head = head_backup;
+                        }
+                    };
+                }
+
+                macro_rules! pop {
+                    () => {
+                        stack_to_use!().pop(short_mode)
+                    };
+                }
+
+                macro_rules! write {
+                    ($address:expr, $value:expr) => {
+                        self.write($address, $value, short_mode)
+                            .ok_or(UxnError::InvalidAddress)
+                    };
+                }
+
+                macro_rules! dei {
+                    ($target:expr) => {
+                        host.dei(self, $target, short_mode).ok_or(UxnError::IOError)
+                    };
+                }
+                macro_rules! deo {
+                    ($target:expr, $value:expr) => {
+                        host.deo(self, $target, $value, short_mode)
+                            .ok_or(UxnError::IOError)
+                    };
+                }
+
+                macro_rules! jmp {
+                    ($address: expr) => {
+                        if short_mode {
+                            return Ok(StepResult::ProgramCounter($address));
+                        }
+
+                        let diff: u8 = $address as u8;
+                        let diff: i8 = unsafe { std::mem::transmute(diff) }; // TODO: Safe way
+                        let diff: i16 = diff as i16;
+                        let destination = program_counter
+                            .overflowing_add(1)
+                            .0
+                            .overflowing_add_signed(diff as i16)
+                            .0;
+
+                        return Ok(StepResult::ProgramCounter(destination));
+                    };
+                }
+
+                match opcode {
+                    ComplexOperation::Increase => {
+                        let a = pop!()?;
+                        done_taking_args!();
+                        push!(a.overflowing_add(1).0)?;
+                    }
+                    ComplexOperation::Pop => {
+                        pop!()?;
+                        done_taking_args!();
+                    }
+                    ComplexOperation::Nip => {
+                        let b = pop!()?;
+                        pop!()?; // a
+                        done_taking_args!();
+                        push!(b)?;
+                    }
+                    ComplexOperation::Swap => {
+                        let b = pop!()?;
+                        let a = pop!()?;
+                        done_taking_args!();
+                        push!(b)?;
+                        push!(a)?;
+                    }
+                    ComplexOperation::Rotate => {
+                        let c = pop!()?;
+                        let b = pop!()?;
+                        let a = pop!()?;
+                        done_taking_args!();
+                        push!(b)?;
+                        push!(c)?;
+                        push!(a)?;
+                    }
+                    ComplexOperation::Duplicate => {
+                        let a = pop!()?;
+                        done_taking_args!();
+                        push!(a)?;
+                        push!(a)?;
+                    }
+                    ComplexOperation::Over => {
+                        let b = pop!()?;
+                        let a = pop!()?;
+                        done_taking_args!();
+                        push!(a)?;
+                        push!(b)?;
+                        push!(a)?;
+                    }
+                    ComplexOperation::Equal => {
+                        let b = pop!()?;
+                        let a = pop!()?;
+                        done_taking_args!();
+                        stack_to_use!().push8((a == b) as u8)?;
+                    }
+                    ComplexOperation::NotEqual => {
+                        let b = pop!()?;
+                        let a = pop!()?;
+                        done_taking_args!();
+                        stack_to_use!().push8((a != b) as u8)?;
+                    }
+                    ComplexOperation::GreaterThan => {
+                        let b = pop!()?;
+                        let a = pop!()?;
+                        done_taking_args!();
+                        stack_to_use!().push8((a > b) as u8)?;
+                    }
+                    ComplexOperation::LesserThan => {
+                        let b = pop!()?;
+                        let a = pop!()?;
+                        done_taking_args!();
+                        stack_to_use!().push8((a < b) as u8)?;
+                    }
+                    ComplexOperation::Jump => {
+                        let address = pop!()?;
+                        done_taking_args!();
+                        jmp!(address);
+                    }
+                    ComplexOperation::JumpConditional => {
+                        let address = pop!()?;
+                        let cond8 = stack_to_use!().pop8()?;
+                        done_taking_args!();
+                        if cond8 != 0 {
+                            jmp!(address);
+                        }
+                    }
+                    ComplexOperation::JumpStashReturn => {
+                        let address = pop!()?;
+                        done_taking_args!();
+                        self.return_stack.push16(program_counter + 1)?;
+                        jmp!(address);
+                    }
+                    ComplexOperation::Stash => {
+                        let a = pop!()?;
+                        done_taking_args!();
+                        if return_mode {
+                            self.working_stack.push(a, short_mode)?;
+                        } else {
+                            self.return_stack.push(a, short_mode)?;
+                        }
+                    }
+                    ComplexOperation::LoadZeroPage => {
+                        let addr8 = stack_to_use!().pop8()?;
+                        done_taking_args!();
+                        let value = read!(addr8 as u16)?;
+                        push!(value)?;
+                    }
+                    ComplexOperation::StoreZeroPage => {
+                        let addr8 = stack_to_use!().pop8()?;
+                        done_taking_args!();
+                        let val = pop!()?;
+                        write!(addr8 as u16, val)?;
+                    }
+                    ComplexOperation::LoadRelative => {
+                        let distance = stack_to_use!().pop8()?;
+                        done_taking_args!();
+                        let addr = program_counter - (PAGE_PROGRAM as u16) + (distance as u16);
+                        let value = read!(addr)?;
+                        push!(value)?;
+                    }
+                    ComplexOperation::StoreRelative => {
+                        let distance = stack_to_use!().pop8()?;
+                        let addr = program_counter - (PAGE_PROGRAM as u16) + (distance as u16);
+                        let val = pop!()?;
+                        done_taking_args!();
+                        write!(addr, val)?;
+                    }
+                    ComplexOperation::LoadAbsolute => {
+                        let addr = stack_to_use!().pop16()?;
+                        done_taking_args!();
+                        let value = read!(addr)?;
+                        push!(value)?;
+                    }
+                    ComplexOperation::StoreAbsolute => {
+                        let addr = stack_to_use!().pop16()?;
+                        let val = pop!()?;
+                        done_taking_args!();
+                        write!(addr, val)?;
+                    }
+                    ComplexOperation::DeviceInput => {
+                        let target = stack_to_use!().pop8()?;
+                        done_taking_args!();
+                        let value = dei!(target)?;
+                        push!(value)?;
+                    }
+                    ComplexOperation::DeviceOutput => {
+                        let target = stack_to_use!().pop8()?;
+                        let val = pop!()?;
+                        done_taking_args!();
+                        deo!(target, val)?;
+                    }
+                    ComplexOperation::Add => {
+                        let b = pop!()?;
+                        let a = pop!()?;
+                        done_taking_args!();
+                        push!(a.overflowing_add(b).0)?;
+                    }
+                    ComplexOperation::Subtract => {
+                        let b = pop!()?;
+                        let a = pop!()?;
+                        done_taking_args!();
+                        push!(a.overflowing_sub(b).0)?;
+                    }
+                    ComplexOperation::Multiply => {
+                        let b = pop!()?;
+                        let a = pop!()?;
+                        done_taking_args!();
+                        push!(a.overflowing_mul(b).0)?;
+                    }
+                    ComplexOperation::Divide => {
+                        let b = pop!()?;
+                        let a = pop!()?;
+                        done_taking_args!();
+                        if b == 0 {
+                            return Err(UxnError::MathError);
+                        }
+                        push!(a.overflowing_div(b).0)?;
+                    }
+                    ComplexOperation::And => {
+                        let b = pop!()?;
+                        let a = pop!()?;
+                        done_taking_args!();
+                        push!(a & b)?;
+                    }
+                    ComplexOperation::Or => {
+                        let b = pop!()?;
+                        let a = pop!()?;
+                        done_taking_args!();
+                        push!(a | b)?;
+                    }
+                    ComplexOperation::ExclusiveOr => {
+                        let b = pop!()?;
+                        let a = pop!()?;
+                        done_taking_args!();
+                        push!(a ^ b)?;
+                    }
+                    ComplexOperation::Shift => {
+                        let shift8 = stack_to_use!().pop8()?;
+                        let a = pop!()?;
+                        done_taking_args!();
+
+                        let high_nibble = (shift8 & 0xf0) >> 4;
+                        let low_nibble = shift8 & 0x0f;
+
+                        let result = (a >> low_nibble) << high_nibble;
+                        push!(result)?;
+                    }
+                }
             }
         }
 
