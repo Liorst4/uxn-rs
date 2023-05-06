@@ -1,6 +1,6 @@
 use crate::uxn;
 
-use std::io::Read;
+use std::io::{Read, Write};
 
 #[repr(u8)]
 enum ConsoleType {
@@ -166,7 +166,8 @@ impl uxn::Host for UxnCli {
         }
 
         if targeted_device_field!(target, short_mode, console, write) {
-            print!("{}", self.console.write as char);
+            let bytes = [self.console.write];
+            std::io::stdout().write(&bytes).unwrap();
         }
 
         Some(())
