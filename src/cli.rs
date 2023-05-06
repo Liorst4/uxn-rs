@@ -97,31 +97,31 @@ impl Default for UxnCli {
     }
 }
 
-impl UxnCli {
-    unsafe fn as_raw_bytes(&self) -> &[u8; uxn::IO_BYTE_COUNT] {
-        std::mem::transmute(self)
+impl<'a> UxnCli {
+    fn as_raw_bytes(&'a self) -> &'a [u8; uxn::IO_BYTE_COUNT] {
+        unsafe { std::mem::transmute(self) }
     }
 
-    unsafe fn read8(&self, offset: u8) -> Option<u8> {
+    fn read8(&self, offset: u8) -> Option<u8> {
         self.as_raw_bytes().get(offset as usize).map(|x| *x)
     }
 
-    unsafe fn read16(&self, offset: u8) -> Option<u16> {
+    fn read16(&self, offset: u8) -> Option<u16> {
         let low = self.read8(offset)?;
         let high = self.read8(offset + 1)?;
         return Some(uxn::bytes_to_short([low, high]));
     }
 
-    unsafe fn as_raw_bytes_mut(&mut self) -> &mut [u8; uxn::IO_BYTE_COUNT] {
-        std::mem::transmute(self)
+    fn as_raw_bytes_mut(&'a mut self) -> &'a mut [u8; uxn::IO_BYTE_COUNT] {
+        unsafe { std::mem::transmute(self) }
     }
 
-    unsafe fn write8(&mut self, offset: u8, value: u8) -> Option<()> {
+    fn write8(&mut self, offset: u8, value: u8) -> Option<()> {
         *self.as_raw_bytes_mut().get_mut(offset as usize)? = value;
         Some(())
     }
 
-    unsafe fn write16(&mut self, offset: u8, value: u16) -> Option<()> {
+    fn write16(&mut self, offset: u8, value: u16) -> Option<()> {
         let value = uxn::short_to_bytes(value);
 
         let high = self.as_raw_bytes_mut().get_mut((offset + 1) as usize)?;
@@ -136,22 +136,18 @@ impl UxnCli {
 
 impl uxn::Host for UxnCli {
     fn dei(&mut self, _cpu: &mut uxn::Uxn, target: u8, short_mode: bool) -> Option<u16> {
-        unsafe {
-            if short_mode {
-                self.read8(target).map(|x| x as u16)
-            } else {
-                self.read16(target)
-            }
+        if short_mode {
+            self.read8(target).map(|x| x as u16)
+        } else {
+            self.read16(target)
         }
     }
 
     fn deo(&mut self, _cpu: &mut uxn::Uxn, target: u8, value: u16, short_mode: bool) -> Option<()> {
-        unsafe {
-            if short_mode {
-                self.write16(target, value)?;
-            } else {
-                self.write8(target, value as u8)?;
-            }
+        if short_mode {
+            self.write16(target, value)?;
+        } else {
+            self.write8(target, value as u8)?;
         }
 
         // TODO: Macro for offset_of
