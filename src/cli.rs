@@ -170,6 +170,11 @@ impl uxn::Host for UxnCli {
             std::io::stdout().write(&bytes).unwrap();
         }
 
+        if targeted_device_field!(target, short_mode, console, error) {
+            let bytes = [self.console.error];
+            std::io::stderr().write(&bytes).unwrap();
+        }
+
         Some(())
     }
 }
