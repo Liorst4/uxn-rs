@@ -226,7 +226,7 @@ impl Default for Stack {
 }
 
 pub struct Uxn {
-    pub ram: [u8; RAM_BYTE_COUNT],
+    ram: [u8; RAM_BYTE_COUNT],
     pub working_stack: Stack,
     pub return_stack: Stack,
 }
@@ -255,16 +255,16 @@ enum StepResult {
 }
 
 impl Uxn {
-    fn read8(&self, address: u16) -> Option<u8> {
+    pub fn read8(&self, address: u16) -> Option<u8> {
         self.ram.get(address as usize).map(|x| *x)
     }
 
-    fn write8(&mut self, address: u16, value: u8) -> Option<()> {
+    pub fn write8(&mut self, address: u16, value: u8) -> Option<()> {
         *self.ram.get_mut(address as usize)? = value;
         Some(())
     }
 
-    fn read16(&self, address: u16) -> Option<u16> {
+    pub fn read16(&self, address: u16) -> Option<u16> {
         let address = address as usize;
 
         if address + 1 >= self.ram.len() {
@@ -274,7 +274,7 @@ impl Uxn {
         return Some(bytes_to_short([self.ram[address], self.ram[address + 1]]));
     }
 
-    fn write16(&mut self, address: u16, value: u16) -> Option<()> {
+    pub fn write16(&mut self, address: u16, value: u16) -> Option<()> {
         let address = address as usize;
         let value = short_to_bytes(value);
 
@@ -288,7 +288,7 @@ impl Uxn {
         return Some(());
     }
 
-    fn read(&self, address: u16, short_mode: bool) -> Option<u16> {
+    pub fn read(&self, address: u16, short_mode: bool) -> Option<u16> {
         if short_mode {
             self.read16(address)
         } else {
@@ -296,7 +296,7 @@ impl Uxn {
         }
     }
 
-    fn write(&mut self, address: u16, value: u16, short_mode: bool) -> Option<()> {
+    pub fn write(&mut self, address: u16, value: u16, short_mode: bool) -> Option<()> {
         if short_mode {
             self.write16(address, value)
         } else {
