@@ -72,10 +72,8 @@ struct DateTime {
     _pad: [u8; 5],
 }
 
-/// A subset of the varvara machine
-/// Supports the system, console, file and datetime devices
 #[repr(packed(1))]
-struct UxnCli {
+struct DeviceIOMemory {
     system: System,
     console: Console,
     _pad: [u8; 0x80],
@@ -84,9 +82,9 @@ struct UxnCli {
     __pad: [u8; 0x30],
 }
 
-impl Default for UxnCli {
-    fn default() -> UxnCli {
-        UxnCli {
+impl Default for DeviceIOMemory {
+    fn default() -> Self {
+        DeviceIOMemory {
             system: Default::default(),
             console: Default::default(),
             _pad: [0; 0x80],
@@ -97,7 +95,7 @@ impl Default for UxnCli {
     }
 }
 
-impl<'a> UxnCli {
+impl<'a> DeviceIOMemory {
     fn as_raw_bytes(&'a self) -> &'a [u8; uxn::IO_BYTE_COUNT] {
         unsafe { std::mem::transmute(self) }
     }
@@ -134,10 +132,17 @@ impl<'a> UxnCli {
     }
 }
 
+/// A subset of the varvara machine
+/// Supports the system, console, file and datetime devices
+#[derive(Default)]
+struct UxnCli {
+    io_memory: DeviceIOMemory,
+}
+
 macro_rules! targeted_device_field {
     ($target:expr, $short_mode:expr, $device:ident, $field: ident) => {{
         let base: *const UxnCli = std::ptr::null();
-        let offset = unsafe { std::ptr::addr_of!((*base).$device.$field) };
+        let offset = unsafe { std::ptr::addr_of!((*base).io_memory.$device.$field) };
         let offset: usize = unsafe { std::mem::transmute(offset) };
         let offset: u8 = offset as u8;
 
@@ -160,30 +165,32 @@ impl std::fmt::Display for uxn::Stack {
 impl uxn::Host for UxnCli {
     fn dei(&mut self, _cpu: &mut uxn::Uxn, target: u8, short_mode: bool) -> Option<u16> {
         if short_mode {
-            self.read8(target).map(|x| x as u16)
+            self.io_memory.read8(target).map(|x| x as u16)
         } else {
-            self.read16(target)
+            self.io_memory.read16(target)
         }
     }
 
     fn deo(&mut self, cpu: &mut uxn::Uxn, target: u8, value: u16, short_mode: bool) -> Option<()> {
         if short_mode {
-            self.write16(target, value)?;
+            self.io_memory.write16(target, value)?;
         } else {
-            self.write8(target, value as u8)?;
+            self.io_memory.write8(target, value as u8)?;
         }
 
         if targeted_device_field!(target, short_mode, console, write) {
-            let bytes = [self.console.write];
+            let bytes = [self.io_memory.console.write];
             std::io::stdout().write(&bytes).unwrap();
         }
 
         if targeted_device_field!(target, short_mode, console, error) {
-            let bytes = [self.console.error];
+            let bytes = [self.io_memory.console.error];
             std::io::stderr().write(&bytes).unwrap();
         }
 
-        if targeted_device_field!(target, short_mode, system, debug) && self.system.debug != 0 {
+        if targeted_device_field!(target, short_mode, system, debug)
+            && self.io_memory.system.debug != 0
+        {
             eprintln!("Working stack: {}", cpu.working_stack);
             eprintln!("Return stack: {}", cpu.return_stack);
             std::io::stderr().flush().unwrap();
@@ -199,9 +206,9 @@ fn inject_console_byte(
     byte: u8,
     kind: ConsoleType,
 ) -> Result<(), uxn::UxnError> {
-    host.console.console_type = kind;
-    host.console.read = byte;
-    let entry = uxn::short_to_host_byte_order(host.console.vector);
+    host.io_memory.console.console_type = kind;
+    host.io_memory.console.read = byte;
+    let entry = uxn::short_to_host_byte_order(host.io_memory.console.vector);
     return vm.eval(host, entry);
 }
 
@@ -238,7 +245,7 @@ fn main() {
     }
 
     // Process input
-    while host.system.state == 0 {
+    while host.io_memory.system.state == 0 {
         let mut byte = [0];
         match std::io::stdin().read(&mut byte) {
             Ok(amount_read) => {
