@@ -1,4 +1,4 @@
-use crate::uxn;
+mod uxn;
 
 use std::io::{Read, Write};
 
@@ -205,8 +205,13 @@ fn inject_console_byte(
     return vm.eval(host, entry);
 }
 
-pub fn run_uxncli(rom: &[u8], args: std::env::Args) {
-    let mut vm = uxn::Uxn::boot(rom);
+fn main() {
+    let mut args = std::env::args();
+    let mut rom = vec![];
+    let mut file = std::fs::File::open(args.nth(1).unwrap()).unwrap();
+    file.read_to_end(&mut rom).unwrap();
+
+    let mut vm = uxn::Uxn::boot(&rom);
     let mut host = UxnCli::default();
     vm.eval(&mut host, uxn::PAGE_PROGRAM as u16).unwrap();
 
