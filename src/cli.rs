@@ -57,6 +57,44 @@ struct File {
     write: u16,
 }
 
+fn not_in_current_directory(path: &std::path::Path) -> bool {
+    return || -> Option<bool> {
+        let path = path.canonicalize().ok()?;
+        let parent = path.parent()?;
+        let cwd = std::env::current_dir().ok()?;
+        return Some(parent == cwd);
+    }()
+    .unwrap_or(false);
+}
+
+impl File {
+    fn get_name(&self, uxn: &uxn::Uxn) -> Option<String> {
+        let address_of_name_in_uxn = uxn::short_to_host_byte_order(self.name);
+        let mut name_bytes = vec![];
+        loop {
+            let byte = uxn.read8(address_of_name_in_uxn + name_bytes.len() as u16)?;
+            if byte == 0 {
+                break;
+            }
+
+            name_bytes.push(byte);
+        }
+
+        let name = String::from_utf8(name_bytes).ok()?;
+
+        if !not_in_current_directory(std::path::Path::new(&name)) {
+            eprintln!("{} violated sandbox rules", name);
+            return None;
+        }
+
+        return Some(name);
+    }
+
+    fn get_operation_length(&self) -> u16 {
+        uxn::short_to_host_byte_order(self.length)
+    }
+}
+
 #[derive(Default)]
 #[repr(packed(1))]
 struct DateTime {
@@ -132,17 +170,42 @@ impl<'a> DeviceIOMemory {
     }
 }
 
+enum OpenedPath {
+    None,
+    File(std::fs::File),
+    Directory(std::fs::ReadDir),
+}
+
+impl Default for OpenedPath {
+    fn default() -> Self {
+        OpenedPath::None
+    }
+}
+
 /// A subset of the varvara machine
 /// Supports the system, console, file and datetime devices
 #[derive(Default)]
 struct UxnCli {
     io_memory: DeviceIOMemory,
+    open_files: [OpenedPath; 2],
 }
 
 macro_rules! targeted_device_field {
     ($target:expr, $short_mode:expr, $device:ident, $field: ident) => {{
         let base: *const UxnCli = std::ptr::null();
         let offset = unsafe { std::ptr::addr_of!((*base).io_memory.$device.$field) };
+        let offset: usize = unsafe { std::mem::transmute(offset) };
+        let offset: u8 = offset as u8;
+
+        if $short_mode {
+            ($target == offset) || (($target - 1) == offset)
+        } else {
+            $target == offset
+        }
+    }};
+    ($target:expr, $short_mode:expr, $device:ident, $device_index:expr, $field: ident) => {{
+        let base: *const UxnCli = std::ptr::null();
+        let offset = unsafe { std::ptr::addr_of!((*base).io_memory.$device[$device_index].$field) };
         let offset: usize = unsafe { std::mem::transmute(offset) };
         let offset: u8 = offset as u8;
 
@@ -194,6 +257,51 @@ impl uxn::Host for UxnCli {
             eprintln!("Working stack: {}", cpu.working_stack);
             eprintln!("Return stack: {}", cpu.return_stack);
             std::io::stderr().flush().unwrap();
+        }
+
+        for i in 0..self.io_memory.file.len() {
+            if targeted_device_field!(target, short_mode, file, i, name) {
+                || -> Option<()> {
+                    let name = self.io_memory.file[i].get_name(cpu)?;
+                    let path = std::path::Path::new(&name);
+                    if !path.exists() {
+                        let file = std::fs::File::create(path).ok()?;
+                        self.open_files[i] = OpenedPath::File(file);
+                    } else if path.is_file() {
+                        let file = std::fs::File::open(path).ok()?;
+                        self.open_files[i] = OpenedPath::File(file);
+                    } else if path.is_dir() {
+                        let dir = std::fs::read_dir(path).ok()?;
+                        self.open_files[i] = OpenedPath::Directory(dir);
+                    } else {
+                        return None;
+                    }
+                    Some(())
+                }();
+            }
+
+            if targeted_device_field!(target, short_mode, file, i, read) {
+                let bytes_read = || -> Option<u16> {
+                    match &mut self.open_files[i] {
+                        OpenedPath::File(file) => file
+                            .read(cpu.slice_mut(
+                                uxn::short_to_host_byte_order(self.io_memory.file[i].read),
+                                self.io_memory.file[i].get_operation_length(),
+                            )?)
+                            .ok()
+                            .map(|x| x as u16),
+                        _ => None,
+                    }
+                }()
+                .unwrap_or(0);
+                self.io_memory.file[i].success = uxn::short_from_host_byte_order(bytes_read);
+            }
+
+            // TODO: if targeted_device_field!(target, short_mode, file, i, write) {}
+
+            // TODO: if targeted_device_field!(target, short_mode, file, i, stat) {}
+
+            // TODO: if targeted_device_field!(target, short_mode, file, i, delete) {}
         }
 
         Some(())

@@ -26,6 +26,11 @@ Implementation of the Varvara virtual machine using the UXN architecture
 *** TODO Controller
 *** TODO Mouse
 *** TODO File
+**** DONE Read
+***** TODO Directory
+**** TODO Write
+**** TODO Stat
+**** TODO Delete
 *** TODO Date time
 ** Use as little dependencies as possible
 ** To have a somewhat small binary footprint
