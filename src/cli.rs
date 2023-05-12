@@ -165,9 +165,9 @@ impl std::fmt::Display for uxn::Stack {
 impl uxn::Host for UxnCli {
     fn dei(&mut self, _cpu: &mut uxn::Uxn, target: u8, short_mode: bool) -> Option<u16> {
         if short_mode {
-            self.io_memory.read8(target).map(|x| x as u16)
-        } else {
             self.io_memory.read16(target)
+        } else {
+            self.io_memory.read8(target).map(|x| x as u16)
         }
     }
 

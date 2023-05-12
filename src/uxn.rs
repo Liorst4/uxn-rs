@@ -288,6 +288,10 @@ impl Uxn {
         return Some(());
     }
 
+    pub fn slice_mut(&mut self, begin: u16, end: u16) -> Option<&mut [u8]> {
+        None
+    }
+
     pub fn read(&self, address: u16, short_mode: bool) -> Option<u16> {
         if short_mode {
             self.read16(address)
