@@ -225,9 +225,6 @@ fn main() {
     // Process arguments
     let args_len = args.len();
     for (i, arg) in args.enumerate() {
-        if i == 0 {
-            continue;
-        }
         for c in arg.as_bytes() {
             inject_console_byte(&mut vm, &mut host, *c, ConsoleType::Argument).unwrap();
         }
