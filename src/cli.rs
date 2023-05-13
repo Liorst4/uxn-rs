@@ -1,6 +1,6 @@
 mod uxn;
 
-use std::io::{Read, Write};
+use std::io::{Read, Seek, Write};
 
 #[repr(u8)]
 enum ConsoleType {
@@ -344,7 +344,28 @@ impl uxn::Host for UxnCli {
                 self.io_memory.file[i].success = uxn::short_from_host_byte_order(bytes_read);
             }
 
-            // TODO: if targeted_device_field!(target, short_mode, file, i, write) {}
+            if targeted_device_field!(target, short_mode, file, i, write) {
+                let bytes_written = || -> Option<u16> {
+                    match &mut self.open_files[i] {
+                        OpenedPath::File(f) => {
+                            let length = self.io_memory.file[i].get_operation_length();
+                            let src = cpu.slice_mut(
+                                uxn::short_to_host_byte_order(self.io_memory.file[i].write),
+                                length,
+                            )?;
+
+                            if self.io_memory.file[i].append == 0 {
+                                f.rewind().ok()?;
+                            }
+
+                            return f.write(src).map(|x| x as u16).ok();
+                        }
+                        _ => None,
+                    }
+                }()
+                .unwrap_or(0);
+                self.io_memory.file[i].success = bytes_written;
+            }
 
             // TODO: if targeted_device_field!(target, short_mode, file, i, stat) {}
 
