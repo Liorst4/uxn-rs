@@ -170,10 +170,33 @@ impl<'a> DeviceIOMemory {
     }
 }
 
+fn read_dir(path: &std::path::Path) -> Option<Vec<Vec<u8>>> {
+    let mut entries = vec![];
+    for entry in std::fs::read_dir(path).ok()? {
+        let entry = entry.ok()?;
+        let size_str = if entry.file_type().ok()?.is_file() {
+            let len = entry.metadata().ok()?.len();
+            if len <= u16::MAX as u64 {
+                format!("{:04x}", len)
+            } else {
+                "????".to_string()
+            }
+        } else {
+            "----".to_string()
+        };
+        let entry_str = format!("{} {}", size_str, entry.file_name().into_string().ok()?);
+        entries.push(entry_str.into_bytes());
+    }
+    return Some(entries);
+}
+
 enum OpenedPath {
     None,
     File(std::fs::File),
-    Directory(std::fs::ReadDir),
+    Directory {
+        entries: Vec<Vec<u8>>,
+        read_index: usize,
+    },
 }
 
 impl Default for OpenedPath {
@@ -271,8 +294,10 @@ impl uxn::Host for UxnCli {
                         let file = std::fs::File::open(path).ok()?;
                         self.open_files[i] = OpenedPath::File(file);
                     } else if path.is_dir() {
-                        let dir = std::fs::read_dir(path).ok()?;
-                        self.open_files[i] = OpenedPath::Directory(dir);
+                        self.open_files[i] = OpenedPath::Directory {
+                            entries: read_dir(path)?,
+                            read_index: 0,
+                        };
                     } else {
                         return None;
                     }
@@ -290,6 +315,28 @@ impl uxn::Host for UxnCli {
                             )?)
                             .ok()
                             .map(|x| x as u16),
+                        OpenedPath::Directory {
+                            entries,
+                            read_index,
+                        } => {
+                            let max_length = self.io_memory.file[i].get_operation_length() as usize;
+                            let mut entries_read = vec![];
+                            while *read_index < entries.len() {
+                                let bytes_to_append = entries[*read_index].len() + 1;
+                                if bytes_to_append + entries_read.len() > max_length {
+                                    break;
+                                }
+                                entries_read.extend(&entries[*read_index]);
+                                entries_read.push('\n' as u8);
+                                *read_index += 1;
+                            }
+                            cpu.slice_mut(
+                                uxn::short_to_host_byte_order(self.io_memory.file[i].read),
+                                entries_read.len() as u16,
+                            )?
+                            .copy_from_slice(&entries_read);
+                            Some(entries_read.len() as u16)
+                        }
                         _ => None,
                     }
                 }()
