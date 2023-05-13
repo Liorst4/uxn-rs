@@ -21,9 +21,7 @@ impl Default for ConsoleType {
 #[repr(packed(1))]
 struct System {
     halt: u16,
-    expansion: u16,
-    friend: u16,
-    metadata: u16,
+    _pad: [u8; 6], // TODO: expansion, friend and metadata
     _red: u16,
     _green: u16,
     _blue: u16,
