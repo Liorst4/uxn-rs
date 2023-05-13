@@ -485,16 +485,56 @@ impl uxn::Host for UxnCli {
     }
 }
 
-fn inject_console_byte(
-    vm: &mut uxn::Uxn,
-    host: &mut UxnCli,
-    byte: u8,
-    kind: ConsoleType,
-) -> Result<(), uxn::UxnError> {
+fn eval_with_fault_handling(vm: &mut uxn::Uxn, host: &mut UxnCli, entry_point: u16) {
+    match vm.eval(host, entry_point) {
+        uxn::UxnEvalResult::Ok => {}
+        uxn::UxnEvalResult::Fault {
+            where_the_error_occured,
+            instruction_that_faulted,
+            error_code,
+        } => {
+            let fault_handler = uxn::short_to_host_byte_order(host.io_memory.system.halt);
+            if fault_handler != 0 {
+                // Empty the stacks
+                vm.working_stack.head = 0;
+                vm.return_stack.head = 0;
+                vm.working_stack.push16(where_the_error_occured).unwrap();
+                vm.working_stack.push8(instruction_that_faulted).unwrap();
+                vm.working_stack.push8(error_code.clone() as u8).unwrap();
+                match vm.eval(host, fault_handler) {
+                    uxn::UxnEvalResult::Fault {
+                        where_the_error_occured,
+                        instruction_that_faulted,
+                        error_code,
+                    } => {
+                        panic!(
+                            "Failed with {:?} ({:02x}) at {:04x} ({:02x}) during fault handling",
+                            error_code.clone(),
+                            error_code.clone() as u8,
+                            where_the_error_occured,
+                            instruction_that_faulted
+                        );
+                    }
+                    _ => {}
+                }
+            } else {
+                panic!(
+                    "Failed with {:?} ({:02x}) at {:04x} ({:02x})",
+                    error_code.clone(),
+                    error_code.clone() as u8,
+                    where_the_error_occured,
+                    instruction_that_faulted
+                );
+            }
+        }
+    }
+}
+
+fn inject_console_byte(vm: &mut uxn::Uxn, host: &mut UxnCli, byte: u8, kind: ConsoleType) {
     host.io_memory.console.console_type = kind;
     host.io_memory.console.read = byte;
     let entry = uxn::short_to_host_byte_order(host.io_memory.console.vector);
-    return vm.eval(host, entry);
+    eval_with_fault_handling(vm, host, entry);
 }
 
 fn main() {
@@ -505,13 +545,13 @@ fn main() {
 
     let mut vm = uxn::Uxn::boot(&rom);
     let mut host = UxnCli::default();
-    vm.eval(&mut host, uxn::PAGE_PROGRAM as u16).unwrap();
+    eval_with_fault_handling(&mut vm, &mut host, uxn::PAGE_PROGRAM as u16);
 
     // Process arguments
     let args_len = args.len();
     for (i, arg) in args.enumerate() {
         for c in arg.as_bytes() {
-            inject_console_byte(&mut vm, &mut host, *c, ConsoleType::Argument).unwrap();
+            inject_console_byte(&mut vm, &mut host, *c, ConsoleType::Argument);
         }
         inject_console_byte(
             &mut vm,
@@ -523,7 +563,6 @@ fn main() {
                 ConsoleType::ArgumentSeparator
             },
         )
-        .unwrap();
     }
 
     // Process input
@@ -532,7 +571,7 @@ fn main() {
         match std::io::stdin().read(&mut byte) {
             Ok(amount_read) => {
                 if amount_read != 0 {
-                    inject_console_byte(&mut vm, &mut host, byte[0], ConsoleType::StdIn).unwrap();
+                    inject_console_byte(&mut vm, &mut host, byte[0], ConsoleType::StdIn);
                 }
             }
             _ => break,

@@ -1,10 +1,22 @@
-#[derive(Debug)]
+#[derive(Debug, Clone)]
+#[repr(u8)]
 pub enum UxnError {
-    StackUnderflow,
-    StackOverflow,
-    MathError,
+    StackUnderflow = 1,
+    StackOverflow = 2,
+    MathError = 3,
+
+    // TODO: Remove these? Looks like uxn.c doesn't have it
     InvalidAddress,
     IOError,
+}
+
+pub enum UxnEvalResult {
+    Ok,
+    Fault {
+        where_the_error_occured: u16,
+        instruction_that_faulted: u8,
+        error_code: UxnError,
+    },
 }
 
 pub const PAGE_PROGRAM: usize = 0x0100;
@@ -161,7 +173,7 @@ pub fn short_to_host_byte_order(short: u16) -> u16 {
 }
 
 impl Stack {
-    fn push8(&mut self, value: u8) -> Result<(), UxnError> {
+    pub fn push8(&mut self, value: u8) -> Result<(), UxnError> {
         if self.head == STACK_BYTE_COUNT as u8 {
             return Err(UxnError::StackOverflow);
         }
@@ -179,7 +191,7 @@ impl Stack {
         return Ok(result);
     }
 
-    fn push16(&mut self, value: u16) -> Result<(), UxnError> {
+    pub fn push16(&mut self, value: u16) -> Result<(), UxnError> {
         if self.head >= (STACK_BYTE_COUNT as u8) - 2 {
             return Err(UxnError::StackOverflow);
         }
@@ -664,19 +676,27 @@ impl Uxn {
         return Ok(StepResult::ProgramCounter(program_counter + 1));
     }
 
-    pub fn eval(&mut self, mm: &mut dyn Host, program_counter: u16) -> Result<(), UxnError> {
+    pub fn eval(&mut self, mm: &mut dyn Host, program_counter: u16) -> UxnEvalResult {
         if program_counter == 0 {
-            return Ok(());
+            return UxnEvalResult::Ok;
         }
 
         let mut program_counter = program_counter;
         loop {
-            match self.step(mm, program_counter)? {
-                StepResult::ProgramCounter(next) => {
+            let instruction_byte_backup = self.read8(program_counter).unwrap();
+            match self.step(mm, program_counter) {
+                Ok(StepResult::ProgramCounter(next)) => {
                     program_counter = next;
                 }
-                StepResult::Break => {
-                    return Ok(());
+                Ok(StepResult::Break) => {
+                    return UxnEvalResult::Ok;
+                }
+                Err(code) => {
+                    return UxnEvalResult::Fault {
+                        where_the_error_occured: program_counter,
+                        instruction_that_faulted: instruction_byte_backup,
+                        error_code: code,
+                    };
                 }
             }
         }

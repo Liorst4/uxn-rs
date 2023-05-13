@@ -6,7 +6,7 @@ Implementation of the Varvara virtual machine using the UXN architecture
 ** To have fun
 ** Implement the varvara virtual machine
 *** TODO System
-**** TODO Halt
+**** DONE Halt
 **** TODO Expansion
 **** TODO Friend
 **** TODO Metadata
