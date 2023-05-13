@@ -192,8 +192,12 @@ fn read_dir(path: &std::path::Path) -> Option<Vec<Vec<u8>>> {
 
 enum OpenedPath {
     None,
-    File(std::fs::File),
+    File {
+        path: std::path::PathBuf,
+        handle: std::fs::File,
+    },
     Directory {
+        path: std::path::PathBuf,
         entries: Vec<Vec<u8>>,
         read_index: usize,
     },
@@ -289,12 +293,19 @@ impl uxn::Host for UxnCli {
                     let path = std::path::Path::new(&name);
                     if !path.exists() {
                         let file = std::fs::File::create(path).ok()?;
-                        self.open_files[i] = OpenedPath::File(file);
+                        self.open_files[i] = OpenedPath::File {
+                            path: path.to_owned(),
+                            handle: file,
+                        };
                     } else if path.is_file() {
                         let file = std::fs::File::open(path).ok()?;
-                        self.open_files[i] = OpenedPath::File(file);
+                        self.open_files[i] = OpenedPath::File {
+                            path: path.to_owned(),
+                            handle: file,
+                        };
                     } else if path.is_dir() {
                         self.open_files[i] = OpenedPath::Directory {
+                            path: path.to_owned(),
                             entries: read_dir(path)?,
                             read_index: 0,
                         };
@@ -308,7 +319,7 @@ impl uxn::Host for UxnCli {
             if targeted_device_field!(target, short_mode, file, i, read) {
                 let bytes_read = || -> Option<u16> {
                     match &mut self.open_files[i] {
-                        OpenedPath::File(file) => file
+                        OpenedPath::File { path: _, handle } => handle
                             .read(cpu.slice_mut(
                                 uxn::short_to_host_byte_order(self.io_memory.file[i].read),
                                 self.io_memory.file[i].get_operation_length(),
@@ -316,6 +327,7 @@ impl uxn::Host for UxnCli {
                             .ok()
                             .map(|x| x as u16),
                         OpenedPath::Directory {
+                            path: _,
                             entries,
                             read_index,
                         } => {
@@ -347,7 +359,7 @@ impl uxn::Host for UxnCli {
             if targeted_device_field!(target, short_mode, file, i, write) {
                 let bytes_written = || -> Option<u16> {
                     match &mut self.open_files[i] {
-                        OpenedPath::File(f) => {
+                        OpenedPath::File { path: _, handle } => {
                             let length = self.io_memory.file[i].get_operation_length();
                             let src = cpu.slice_mut(
                                 uxn::short_to_host_byte_order(self.io_memory.file[i].write),
@@ -355,10 +367,10 @@ impl uxn::Host for UxnCli {
                             )?;
 
                             if self.io_memory.file[i].append == 0 {
-                                f.rewind().ok()?;
+                                handle.rewind().ok()?;
                             }
 
-                            return f.write(src).map(|x| x as u16).ok();
+                            return handle.write(src).map(|x| x as u16).ok();
                         }
                         _ => None,
                     }
@@ -369,7 +381,29 @@ impl uxn::Host for UxnCli {
 
             // TODO: if targeted_device_field!(target, short_mode, file, i, stat) {}
 
-            // TODO: if targeted_device_field!(target, short_mode, file, i, delete) {}
+            if targeted_device_field!(target, short_mode, file, i, delete)
+                && self.io_memory.file[i].delete != 0
+            {
+                match &mut self.open_files[i] {
+                    OpenedPath::File { path, handle: _ } => {
+                        if std::fs::remove_file(&path).is_err() {
+                            eprintln!("Could not remove {:?}", path);
+                        }
+                    }
+                    OpenedPath::Directory {
+                        path,
+                        entries: _,
+                        read_index: __,
+                    } => {
+                        if std::fs::remove_dir(&path).is_err() {
+                            eprintln!("Could not remove {:?}", path);
+                        }
+                    }
+                    OpenedPath::None => {}
+                }
+
+                self.open_files[i] = Default::default();
+            }
         }
 
         Some(())

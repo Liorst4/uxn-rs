@@ -29,7 +29,7 @@ Implementation of the Varvara virtual machine using the UXN architecture
 **** DONE Read
 **** DONE Write
 **** TODO Stat
-**** TODO Delete
+**** DONE Delete
 *** TODO Date time
 ** Use as little dependencies as possible
 ** To have a somewhat small binary footprint
