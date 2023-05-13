@@ -1,0 +1,23 @@
+Implementation of the UXN virtual machine in the Rust programming language.
+
+This project is in an early stage, the current implementation only supports
+the System, Console, File and Datetime devices (like uxncli.c)
+
+Project goals:
+To have fun.
+To implement a varvara environment.
+To have a somewhat small binary footprint (minimize the amount of dependencies).
+Support multiple operating systems.
+
+Non goals:
+To replace the classic C implementation.
+To be 100% free of "unsafe" code
+To be the fastest implementation
+
+Building the project:
+Just use "cargo build"
+
+Read more:
+UXN - https://100r.co/site/uxn.html
+uxncli.c - https://git.sr.ht/~rabbits/uxn/tree/main/item/src/uxncli.c
+varvara - https://wiki.xxiivv.com/site/varvara.html
