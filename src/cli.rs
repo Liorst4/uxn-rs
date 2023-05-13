@@ -170,22 +170,27 @@ impl<'a> DeviceIOMemory {
     }
 }
 
+fn read_dir_entry(path: &std::path::Path) -> Option<Vec<u8>> {
+    let metadata = path.metadata().ok()?;
+    let size_str: String;
+    if metadata.is_file() {
+        let size = metadata.len();
+        if size <= u16::MAX as u64 {
+            size_str = format!("{:04x}", size);
+        } else {
+            size_str = "????".to_string();
+        }
+    } else {
+        size_str = "----".to_string();
+    }
+
+    return Some(format!("{} {}", size_str, path.to_str()?).into_bytes());
+}
+
 fn read_dir(path: &std::path::Path) -> Option<Vec<Vec<u8>>> {
     let mut entries = vec![];
     for entry in std::fs::read_dir(path).ok()? {
-        let entry = entry.ok()?;
-        let size_str = if entry.file_type().ok()?.is_file() {
-            let len = entry.metadata().ok()?.len();
-            if len <= u16::MAX as u64 {
-                format!("{:04x}", len)
-            } else {
-                "????".to_string()
-            }
-        } else {
-            "----".to_string()
-        };
-        let entry_str = format!("{} {}", size_str, entry.file_name().into_string().ok()?);
-        entries.push(entry_str.into_bytes());
+        entries.push(read_dir_entry(&entry.ok()?.path())?);
     }
     return Some(entries);
 }
@@ -379,7 +384,31 @@ impl uxn::Host for UxnCli {
                 self.io_memory.file[i].success = bytes_written;
             }
 
-            // TODO: if targeted_device_field!(target, short_mode, file, i, stat) {}
+            if targeted_device_field!(target, short_mode, file, i, stat) {
+                let bytes_written = || -> Option<u16> {
+                    let entry = read_dir_entry(match &self.open_files[i] {
+                        OpenedPath::File { path, handle: _ } => Some(path),
+                        OpenedPath::Directory {
+                            path,
+                            entries: _,
+                            read_index: __,
+                        } => Some(path),
+                        OpenedPath::None => None,
+                    }?)?;
+                    let length = std::cmp::min(
+                        self.io_memory.file[i].get_operation_length(),
+                        entry.len() as u16,
+                    );
+                    let dst = cpu.slice_mut(
+                        uxn::short_to_host_byte_order(self.io_memory.file[i].stat),
+                        length,
+                    )?;
+                    dst.copy_from_slice(&entry);
+                    Some(length)
+                }()
+                .unwrap_or(0);
+                self.io_memory.file[i].success = bytes_written;
+            }
 
             if targeted_device_field!(target, short_mode, file, i, delete)
                 && self.io_memory.file[i].delete != 0
