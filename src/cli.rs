@@ -110,6 +110,39 @@ struct DateTime {
     _pad: [u8; 5],
 }
 
+impl DateTime {
+    fn update(&mut self) {
+        let mut calendar_time = libc::tm {
+            tm_sec: 0,
+            tm_min: 0,
+            tm_hour: 0,
+            tm_mday: 0,
+            tm_mon: 0,
+            tm_year: 0,
+            tm_wday: 0,
+            tm_yday: 0,
+            tm_isdst: 0,
+            tm_gmtoff: 0,
+            tm_zone: std::ptr::null(),
+        };
+        let mut now: libc::time_t = 0;
+        unsafe {
+            libc::time(&mut now);
+            libc::localtime_r(&now, &mut calendar_time);
+        }
+
+        self.year = calendar_time.tm_year as u16;
+        self.month = calendar_time.tm_mon as u8;
+        self.day = calendar_time.tm_mday as u8;
+        self.hour = calendar_time.tm_hour as u8;
+        self.minute = calendar_time.tm_min as u8;
+        self.second = calendar_time.tm_sec as u8;
+        self.dotw = calendar_time.tm_wday as u8;
+        self.doty = calendar_time.tm_yday as u16;
+        self.isdst = calendar_time.tm_isdst as u8;
+    }
+}
+
 #[repr(packed(1))]
 struct DeviceIOMemory {
     system: System,
@@ -433,6 +466,19 @@ impl uxn::Host for UxnCli {
 
                 self.open_files[i] = Default::default();
             }
+        }
+
+        if targeted_device_field!(target, short_mode, datetime, year)
+            || targeted_device_field!(target, short_mode, datetime, month)
+            || targeted_device_field!(target, short_mode, datetime, day)
+            || targeted_device_field!(target, short_mode, datetime, hour)
+            || targeted_device_field!(target, short_mode, datetime, minute)
+            || targeted_device_field!(target, short_mode, datetime, second)
+            || targeted_device_field!(target, short_mode, datetime, dotw)
+            || targeted_device_field!(target, short_mode, datetime, doty)
+            || targeted_device_field!(target, short_mode, datetime, isdst)
+        {
+            self.io_memory.datetime.update();
         }
 
         Some(())
