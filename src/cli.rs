@@ -46,7 +46,7 @@ struct Console {
 #[derive(Default)]
 #[repr(packed(1))]
 struct File {
-    vector: u16,
+    _vector: u16,
     success: u16,
     stat: u16,
     delete: u8,
