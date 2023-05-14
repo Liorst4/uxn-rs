@@ -412,7 +412,7 @@ impl uxn::Host for UxnCli {
                     }
                 }()
                 .unwrap_or(0);
-                self.io_memory.file[i].success = bytes_written;
+                self.io_memory.file[i].success = uxn::short_from_host_byte_order(bytes_written);
             }
 
             if targeted_device_field!(target, short_mode, file, i, stat) {
@@ -438,7 +438,7 @@ impl uxn::Host for UxnCli {
                     Some(length)
                 }()
                 .unwrap_or(0);
-                self.io_memory.file[i].success = bytes_written;
+                self.io_memory.file[i].success = uxn::short_from_host_byte_order(bytes_written);
             }
 
             if targeted_device_field!(target, short_mode, file, i, delete)
