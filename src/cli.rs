@@ -55,14 +55,25 @@ struct File {
     write: u16,
 }
 
-fn not_in_current_directory(path: &std::path::Path) -> bool {
-    return || -> Option<bool> {
-        let path = path.canonicalize().ok()?;
-        let parent = path.parent()?;
-        let cwd = std::env::current_dir().ok()?;
-        return Some(parent == cwd);
-    }()
-    .unwrap_or(false);
+fn complies_with_sandbox_rules(path: &std::path::Path) -> bool {
+    if path.is_absolute() {
+        eprintln!("ABSOLUTE PATHS AREN'T ALLOWED");
+        return false;
+    }
+
+    if path.is_symlink() {
+        eprintln!("SYMLINKS AREN'T ALLOWED");
+        return false;
+    }
+
+    for i in path {
+        if i == ".." {
+            eprintln!("RELATIVE PATHS WITH .. AREN'T ALLOWED");
+            return false;
+        }
+    }
+
+    return true;
 }
 
 impl File {
@@ -80,7 +91,7 @@ impl File {
 
         let name = String::from_utf8(name_bytes).ok()?;
 
-        if !not_in_current_directory(std::path::Path::new(&name)) {
+        if !complies_with_sandbox_rules(std::path::Path::new(&name)) {
             eprintln!("{} violated sandbox rules", name);
             return None;
         }
@@ -574,5 +585,112 @@ fn main() {
             }
             _ => break,
         }
+    }
+}
+
+// TODO: Move to another file
+#[cfg(test)]
+mod sandbox_tests {
+    use super::complies_with_sandbox_rules;
+
+    fn with_tempdir<F>(function: F)
+    where
+        F: FnOnce() -> () + std::panic::UnwindSafe,
+    {
+        let res;
+
+        {
+            static mut ONE_TEST_AT_A_TIME_ENFORCER: std::sync::Mutex<usize> =
+                std::sync::Mutex::new(0);
+            let _guard = unsafe { ONE_TEST_AT_A_TIME_ENFORCER.lock().unwrap() };
+
+            let test_directory = std::env::temp_dir().join("uxncli-sandbox-tests");
+            assert!(!test_directory.exists());
+            std::fs::create_dir(&test_directory).unwrap();
+
+            let working_directory = test_directory.as_path().join("working_dir");
+            assert!(!working_directory.exists());
+            std::fs::create_dir(&working_directory).unwrap();
+
+            std::env::set_current_dir(&working_directory).unwrap();
+            res = std::panic::catch_unwind(|| function());
+            std::env::set_current_dir(std::env::temp_dir()).unwrap();
+            std::fs::remove_dir_all(&test_directory).unwrap();
+        }
+
+        assert!(res.is_ok());
+    }
+
+    #[test]
+    fn test_file_in_current_working_directory() {
+        with_tempdir(|| {
+            let file_name = "test.txt";
+            std::fs::File::create(file_name).unwrap();
+            assert!(complies_with_sandbox_rules(std::path::Path::new(file_name)));
+        });
+    }
+
+    #[test]
+    fn test_file_outside_current_working_directory() {
+        with_tempdir(|| {
+            let file_name = std::path::PathBuf::from("../test.txt");
+            std::fs::File::create(&file_name).unwrap();
+            assert!(!complies_with_sandbox_rules(&file_name));
+        });
+    }
+
+    #[test]
+    fn test_file_in_subdirectory() {
+        with_tempdir(|| {
+            let dir_path = std::path::PathBuf::from("dir");
+            std::fs::create_dir(&dir_path).unwrap();
+            let file_path = dir_path.join("file.txt");
+            std::fs::File::create(file_path.as_path()).unwrap();
+            assert!(complies_with_sandbox_rules(file_path.as_path()));
+        });
+    }
+
+    #[cfg(target_family = "unix")]
+    #[test]
+    fn test_symlink_that_points_to_something_in_the_working_directory() {
+        with_tempdir(|| {
+            let file1_path = std::path::PathBuf::from("file1.txt");
+            std::fs::File::create(file1_path.as_path()).unwrap();
+            let file2_path = std::path::PathBuf::from("file2.txt");
+            std::os::unix::fs::symlink(file1_path.as_path(), file2_path.as_path()).unwrap();
+            assert!(!complies_with_sandbox_rules(file2_path.as_path()));
+        });
+    }
+
+    #[cfg(target_family = "unix")]
+    #[test]
+    fn test_symlink_that_points_to_something_outside_the_working_directory() {
+        with_tempdir(|| {
+            let file1_path = std::path::PathBuf::from("../file1.txt");
+            std::fs::File::create(file1_path.as_path()).unwrap();
+            let file2_path = std::path::PathBuf::from("file2.txt");
+            std::os::unix::fs::symlink(file1_path.as_path(), file2_path.as_path()).unwrap();
+            assert!(!complies_with_sandbox_rules(file2_path.as_path()));
+        });
+    }
+
+    #[test]
+    fn test_file_that_doesnt_exist_in_current_working_directory() {
+        with_tempdir(|| {
+            let file_path = std::path::PathBuf::from("file1.txt");
+            assert!(!file_path.exists());
+            assert!(complies_with_sandbox_rules(file_path.as_path()));
+        });
+    }
+
+    #[test]
+    fn test_file_that_doesnt_exist_outside_of_current_working_directory() {
+        with_tempdir(|| {
+            let file1_path = std::path::PathBuf::from("../file1.txt");
+            assert!(!file1_path.exists());
+            let file2_path = std::path::PathBuf::from("file2.txt");
+            std::os::unix::fs::symlink(file1_path.as_path(), file2_path.as_path()).unwrap();
+            assert!(!complies_with_sandbox_rules(file2_path.as_path()));
+        });
     }
 }
