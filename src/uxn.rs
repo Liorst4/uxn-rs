@@ -237,6 +237,14 @@ impl Default for Stack {
     }
 }
 
+impl core::fmt::Display for Stack {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
+        let head = self.head as usize;
+        let data = &self.data[0..head];
+        write!(f, "{:x?}", data)
+    }
+}
+
 pub struct Uxn {
     ram: [u8; RAM_BYTE_COUNT],
     pub working_stack: Stack,
@@ -709,6 +717,92 @@ impl Uxn {
             ram,
             working_stack: Default::default(),
             return_stack: Default::default(),
+        }
+    }
+}
+
+#[test]
+fn test_opcodes() {
+    struct MiniHost {}
+    impl Host for MiniHost {
+        fn dei(&mut self, _cpu: &mut Uxn, _target: u8, _short_mode: bool) -> Option<u16> {
+            eprintln!("Tried to DEI");
+            None
+        }
+
+        fn deo(&mut self, cpu: &mut Uxn, target: u8, value: u16, _short_mode: bool) -> Option<()> {
+            const FAIL_CHAR: u8 = '0' as u8;
+            const CONSOLE_WRITE_OFFSET: u8 = 0x18;
+            const SYSTEM_DEBUG_OFFSET: u8 = 0x0e;
+            const SYSTEM_STATE_OFFSET: u8 = 0x0f;
+
+            if target == CONSOLE_WRITE_OFFSET {
+                if value as u8 == FAIL_CHAR {
+                    eprintln!("Reported a failure");
+                    return None;
+                }
+
+                return Some(());
+            }
+
+            if target == SYSTEM_DEBUG_OFFSET {
+                if value as u8 != 0x1 {
+                    eprintln!("Unexpected value sent to System.debug {:02x}", value as u8);
+                    return None;
+                }
+
+                if cpu.working_stack.head != 0 {
+                    eprintln!("Working stack isn't empty {}", cpu.working_stack);
+                    return None;
+                }
+
+                if cpu.return_stack.head != 0 {
+                    eprintln!("Return stack isn't empty {}", cpu.return_stack);
+                    return None;
+                }
+
+                return Some(());
+            }
+
+            if target == SYSTEM_STATE_OFFSET {
+                if value as u8 != 0x1 {
+                    eprintln!("Unexpected value sent to System.state{:02x}", value as u8);
+                    return None;
+                }
+                return Some(());
+            }
+
+            eprintln!("Unsupported port for tests {:02x}", target);
+            return None;
+        }
+    }
+
+    const ENCODED_TEST_ROM: &str = include_str!("../etc/tests.rom.hex");
+    let mut test_rom = vec![];
+
+    for line in ENCODED_TEST_ROM.lines() {
+        if line.starts_with('#') {
+            continue;
+        }
+
+        for hex in line.split(' ') {
+            test_rom.push(u8::from_str_radix(hex, 16).unwrap());
+        }
+    }
+
+    let mut cpu = Uxn::boot(&test_rom);
+    let mut host = MiniHost {};
+    match cpu.eval(&mut host, PAGE_PROGRAM as u16) {
+        UxnEvalResult::Ok => {}
+        UxnEvalResult::Fault {
+            where_the_error_occured,
+            instruction_that_faulted,
+            error_code,
+        } => {
+            panic!(
+                "Opcode test failed with {:?} at {:04x} ({:02x})",
+                error_code, where_the_error_occured, instruction_that_faulted
+            );
         }
     }
 }
