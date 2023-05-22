@@ -77,26 +77,20 @@ fn complies_with_sandbox_rules(path: &std::path::Path) -> bool {
 }
 
 impl File {
-    fn get_name(&self, uxn: &uxn::Uxn) -> Option<String> {
+    fn path<'a>(&self, uxn: &'a uxn::Uxn) -> Option<&'a std::path::Path> {
         let address_of_name_in_uxn = uxn::short_to_host_byte_order(self.name);
-        let mut name_bytes = vec![];
-        loop {
-            let byte = uxn.read8(address_of_name_in_uxn + name_bytes.len() as u16)?;
-            if byte == 0 {
-                break;
-            }
-
-            name_bytes.push(byte);
+        let mut name_byte_count: u16 = 0;
+        while uxn.read8(address_of_name_in_uxn + name_byte_count)? != 0 {
+            name_byte_count += 1;
         }
-
-        let name = String::from_utf8(name_bytes).ok()?;
-
-        if !complies_with_sandbox_rules(std::path::Path::new(&name)) {
+        let name = uxn.slice(address_of_name_in_uxn, name_byte_count)?;
+        let name = std::str::from_utf8(name).ok()?;
+        let path = std::path::Path::new(name);
+        if !complies_with_sandbox_rules(path) {
             eprintln!("{} violated sandbox rules", name);
             return None;
         }
-
-        return Some(name);
+        return Some(path);
     }
 
     fn get_operation_length(&self) -> u16 {
@@ -328,8 +322,7 @@ impl uxn::Host for UxnCli {
         for i in 0..self.io_memory.file.len() {
             if targeted_device_field!(target, short_mode, file, i, name) {
                 || -> Option<()> {
-                    let name = self.io_memory.file[i].get_name(cpu)?;
-                    let path = std::path::Path::new(&name);
+                    let path = self.io_memory.file[i].path(cpu)?;
                     if !path.exists() {
                         let file = std::fs::File::create(path).ok()?;
                         self.open_files[i] = OpenedPath::File {
@@ -400,7 +393,7 @@ impl uxn::Host for UxnCli {
                     match &mut self.open_files[i] {
                         OpenedPath::File { path: _, handle } => {
                             let length = self.io_memory.file[i].get_operation_length();
-                            let src = cpu.slice_mut(
+                            let src = cpu.slice(
                                 uxn::short_to_host_byte_order(self.io_memory.file[i].write),
                                 length,
                             )?;

@@ -308,19 +308,26 @@ impl Uxn {
         return Some(());
     }
 
+    pub fn slice(&self, begin: u16, length: u16) -> Option<&[u8]> {
+        if length == 0 {
+            return None;
+        }
+
+        return self
+            .ram
+            .as_slice()
+            .get(begin as usize..(begin + length) as usize);
+    }
+
     pub fn slice_mut(&mut self, begin: u16, length: u16) -> Option<&mut [u8]> {
         if length == 0 {
             return None;
         }
 
-        let end = (begin + length) as usize;
-        let begin = begin as usize;
-
-        if end >= self.ram.len() {
-            return None;
-        }
-
-        return Some(&mut self.ram[begin..end]);
+        return self
+            .ram
+            .as_mut_slice()
+            .get_mut(begin as usize..(begin + length) as usize);
     }
 
     pub fn read(&self, address: u16, short_mode: bool) -> Option<u16> {
