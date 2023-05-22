@@ -582,12 +582,12 @@ mod sandbox_tests {
     where
         F: FnOnce() -> () + std::panic::UnwindSafe,
     {
-        let res;
+        let test_result;
 
         {
-            static mut ONE_TEST_AT_A_TIME_ENFORCER: std::sync::Mutex<usize> =
-                std::sync::Mutex::new(0);
-            let _guard = unsafe { ONE_TEST_AT_A_TIME_ENFORCER.lock().unwrap() };
+            static CURRENT_DIR_MUTEX: std::sync::Mutex<()> = std::sync::Mutex::new(());
+            let _currect_dir_guard = CURRENT_DIR_MUTEX.lock().unwrap();
+            let current_dir_backup = std::env::current_dir().unwrap();
 
             let test_directory = std::env::temp_dir().join("uxncli-sandbox-tests");
             assert!(!test_directory.exists());
@@ -598,12 +598,12 @@ mod sandbox_tests {
             std::fs::create_dir(&working_directory).unwrap();
 
             std::env::set_current_dir(&working_directory).unwrap();
-            res = std::panic::catch_unwind(|| function());
-            std::env::set_current_dir(std::env::temp_dir()).unwrap();
+            test_result = std::panic::catch_unwind(|| function());
+            std::env::set_current_dir(current_dir_backup).unwrap();
             std::fs::remove_dir_all(&test_directory).unwrap();
         }
 
-        assert!(res.is_ok());
+        assert!(test_result.is_ok());
     }
 
     #[test]
