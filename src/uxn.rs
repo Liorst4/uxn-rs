@@ -691,7 +691,7 @@ impl Uxn {
         return Ok(StepResult::ProgramCounter(program_counter + 1));
     }
 
-    pub fn eval(&mut self, mm: &mut dyn Host, program_counter: u16) -> UxnEvalResult {
+    pub fn eval(&mut self, host: &mut dyn Host, program_counter: u16) -> UxnEvalResult {
         if program_counter == 0 {
             return UxnEvalResult::Ok;
         }
@@ -699,7 +699,7 @@ impl Uxn {
         let mut program_counter = program_counter;
         loop {
             let instruction_byte_backup = self.read8(program_counter).unwrap();
-            match self.step(mm, program_counter) {
+            match self.step(host, program_counter) {
                 Ok(StepResult::ProgramCounter(next)) => {
                     program_counter = next;
                 }
