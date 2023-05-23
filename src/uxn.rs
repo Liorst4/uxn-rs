@@ -160,19 +160,19 @@ pub struct Stack {
     pub data: [u8; STACK_BYTE_COUNT],
 }
 
-pub fn bytes_to_short(bytes: [u8; 2]) -> u16 {
+pub fn uxn_bytes_to_host_short(bytes: [u8; 2]) -> u16 {
     u16::from_be_bytes(bytes)
 }
 
-pub fn short_to_bytes(short: u16) -> [u8; 2] {
+pub fn host_short_to_uxn_bytes(short: u16) -> [u8; 2] {
     u16::to_be_bytes(short)
 }
 
-pub fn short_from_host_byte_order(short: u16) -> u16 {
+pub fn host_short_to_uxn_short(short: u16) -> u16 {
     u16::to_be(short)
 }
 
-pub fn short_to_host_byte_order(short: u16) -> u16 {
+pub fn uxn_short_to_host_short(short: u16) -> u16 {
     u16::from_be(short)
 }
 
@@ -199,7 +199,7 @@ impl Stack {
         if self.head >= (STACK_BYTE_COUNT as u8) - 2 {
             return Err(UxnError::StackOverflow);
         }
-        let value = short_to_bytes(value);
+        let value = host_short_to_uxn_bytes(value);
         self.data[self.head as usize] = value[0];
         self.data[(self.head + 1) as usize] = value[1];
         self.head += 2;
@@ -209,7 +209,7 @@ impl Stack {
         if self.head < 2 {
             return Err(UxnError::StackUnderflow);
         }
-        let result = bytes_to_short([
+        let result = uxn_bytes_to_host_short([
             self.data[(self.head - 2) as usize],
             self.data[(self.head - 1) as usize],
         ]);
@@ -295,12 +295,15 @@ impl Uxn {
             return None;
         }
 
-        return Some(bytes_to_short([self.ram[address], self.ram[address + 1]]));
+        return Some(uxn_bytes_to_host_short([
+            self.ram[address],
+            self.ram[address + 1],
+        ]));
     }
 
     pub fn write16(&mut self, address: u16, value: u16) -> Option<()> {
         let address = address as usize;
-        let value = short_to_bytes(value);
+        let value = host_short_to_uxn_bytes(value);
 
         if address + 1 >= self.ram.len() {
             return None;

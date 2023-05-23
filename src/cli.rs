@@ -78,7 +78,7 @@ fn complies_with_sandbox_rules(path: &std::path::Path) -> bool {
 
 impl File {
     fn path<'a>(&self, uxn: &'a uxn::Uxn) -> Option<&'a std::path::Path> {
-        let address_of_name_in_uxn = uxn::short_to_host_byte_order(self.name);
+        let address_of_name_in_uxn = uxn::uxn_short_to_host_short(self.name);
         let mut name_byte_count: u16 = 0;
         while uxn.read8(address_of_name_in_uxn + name_byte_count)? != 0 {
             name_byte_count += 1;
@@ -94,7 +94,7 @@ impl File {
     }
 
     fn get_operation_length(&self) -> u16 {
-        uxn::short_to_host_byte_order(self.length)
+        uxn::uxn_short_to_host_short(self.length)
     }
 }
 
@@ -181,7 +181,7 @@ impl<'a> DeviceIOMemory {
     fn read16(&self, offset: u8) -> Option<u16> {
         let low = self.read8(offset)?;
         let high = self.read8(offset + 1)?;
-        return Some(uxn::bytes_to_short([low, high]));
+        return Some(uxn::uxn_bytes_to_host_short([low, high]));
     }
 
     fn as_raw_bytes_mut(&'a mut self) -> &'a mut [u8; uxn::IO_BYTE_COUNT] {
@@ -194,7 +194,7 @@ impl<'a> DeviceIOMemory {
     }
 
     fn write16(&mut self, offset: u8, value: u16) -> Option<()> {
-        let value = uxn::short_to_bytes(value);
+        let value = uxn::host_short_to_uxn_bytes(value);
 
         let high = self.as_raw_bytes_mut().get_mut((offset + 1) as usize)?;
         *high = value[1];
@@ -355,7 +355,7 @@ impl uxn::Host for UxnCli {
                     match &mut self.open_files[i] {
                         OpenedPath::File { path: _, handle } => handle
                             .read(cpu.slice_mut(
-                                uxn::short_to_host_byte_order(self.io_memory.file[i].read),
+                                uxn::uxn_short_to_host_short(self.io_memory.file[i].read),
                                 self.io_memory.file[i].get_operation_length(),
                             )?)
                             .ok()
@@ -377,7 +377,7 @@ impl uxn::Host for UxnCli {
                                 *read_index += 1;
                             }
                             cpu.slice_mut(
-                                uxn::short_to_host_byte_order(self.io_memory.file[i].read),
+                                uxn::uxn_short_to_host_short(self.io_memory.file[i].read),
                                 entries_read.len() as u16,
                             )?
                             .copy_from_slice(&entries_read);
@@ -387,7 +387,7 @@ impl uxn::Host for UxnCli {
                     }
                 }()
                 .unwrap_or(0);
-                self.io_memory.file[i].success = uxn::short_from_host_byte_order(bytes_read);
+                self.io_memory.file[i].success = uxn::host_short_to_uxn_short(bytes_read);
             }
 
             if targeted_device_field!(target, short_mode, file, i, write) {
@@ -396,7 +396,7 @@ impl uxn::Host for UxnCli {
                         OpenedPath::File { path: _, handle } => {
                             let length = self.io_memory.file[i].get_operation_length();
                             let src = cpu.slice(
-                                uxn::short_to_host_byte_order(self.io_memory.file[i].write),
+                                uxn::uxn_short_to_host_short(self.io_memory.file[i].write),
                                 length,
                             )?;
 
@@ -410,7 +410,7 @@ impl uxn::Host for UxnCli {
                     }
                 }()
                 .unwrap_or(0);
-                self.io_memory.file[i].success = uxn::short_from_host_byte_order(bytes_written);
+                self.io_memory.file[i].success = uxn::host_short_to_uxn_short(bytes_written);
             }
 
             if targeted_device_field!(target, short_mode, file, i, stat) {
@@ -429,14 +429,14 @@ impl uxn::Host for UxnCli {
                         entry.len() as u16,
                     );
                     let dst = cpu.slice_mut(
-                        uxn::short_to_host_byte_order(self.io_memory.file[i].stat),
+                        uxn::uxn_short_to_host_short(self.io_memory.file[i].stat),
                         length,
                     )?;
                     dst.copy_from_slice(&entry);
                     Some(length)
                 }()
                 .unwrap_or(0);
-                self.io_memory.file[i].success = uxn::short_from_host_byte_order(bytes_written);
+                self.io_memory.file[i].success = uxn::host_short_to_uxn_short(bytes_written);
             }
 
             if targeted_device_field!(target, short_mode, file, i, delete)
@@ -489,7 +489,7 @@ fn eval_with_fault_handling(vm: &mut uxn::Uxn, host: &mut UxnCli, entry_point: u
             instruction_that_faulted,
             error_code,
         } => {
-            let fault_handler = uxn::short_to_host_byte_order(host.io_memory.system.halt);
+            let fault_handler = uxn::uxn_short_to_host_short(host.io_memory.system.halt);
             if fault_handler != 0 {
                 // Empty the stacks
                 vm.working_stack.head = 0;
@@ -529,7 +529,7 @@ fn eval_with_fault_handling(vm: &mut uxn::Uxn, host: &mut UxnCli, entry_point: u
 fn inject_console_byte(vm: &mut uxn::Uxn, host: &mut UxnCli, byte: u8, kind: ConsoleType) {
     host.io_memory.console.console_type = kind;
     host.io_memory.console.read = byte;
-    let entry = uxn::short_to_host_byte_order(host.io_memory.console.vector);
+    let entry = uxn::uxn_short_to_host_short(host.io_memory.console.vector);
     eval_with_fault_handling(vm, host, entry);
 }
 
