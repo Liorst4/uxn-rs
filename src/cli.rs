@@ -260,8 +260,8 @@ struct UxnCli {
 
 macro_rules! targeted_device_field {
     ($target:expr, $short_mode:expr, $device:ident, $field: ident) => {{
-        let base: *const UxnCli = std::ptr::null();
-        let offset = unsafe { std::ptr::addr_of!((*base).io_memory.$device.$field) };
+        let base: *const DeviceIOMemory = std::ptr::null();
+        let offset = unsafe { std::ptr::addr_of!((*base).$device.$field) };
         let offset: usize = unsafe { std::mem::transmute(offset) };
         let offset: u8 = offset as u8;
         // TODO: Make `offset` a constant
@@ -273,8 +273,8 @@ macro_rules! targeted_device_field {
         }
     }};
     ($target:expr, $short_mode:expr, $device:ident, $device_index:expr, $field: ident) => {{
-        let base: *const UxnCli = std::ptr::null();
-        let offset = unsafe { std::ptr::addr_of!((*base).io_memory.$device[$device_index].$field) };
+        let base: *const DeviceIOMemory = std::ptr::null();
+        let offset = unsafe { std::ptr::addr_of!((*base).$device[$device_index].$field) };
         let offset: usize = unsafe { std::mem::transmute(offset) };
         let offset: u8 = offset as u8;
         // TODO: Make `offset` a constant
