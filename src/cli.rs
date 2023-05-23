@@ -289,6 +289,19 @@ macro_rules! targeted_device_field {
 
 impl uxn::Host for UxnCli {
     fn dei(&mut self, _cpu: &mut uxn::Uxn, target: u8, short_mode: bool) -> Option<u16> {
+        if targeted_device_field!(target, short_mode, datetime, year)
+            || targeted_device_field!(target, short_mode, datetime, month)
+            || targeted_device_field!(target, short_mode, datetime, day)
+            || targeted_device_field!(target, short_mode, datetime, hour)
+            || targeted_device_field!(target, short_mode, datetime, minute)
+            || targeted_device_field!(target, short_mode, datetime, second)
+            || targeted_device_field!(target, short_mode, datetime, dotw)
+            || targeted_device_field!(target, short_mode, datetime, doty)
+            || targeted_device_field!(target, short_mode, datetime, isdst)
+        {
+            self.io_memory.datetime.update();
+        }
+
         if short_mode {
             self.io_memory.read16(target)
         } else {
@@ -462,19 +475,6 @@ impl uxn::Host for UxnCli {
 
                 self.open_files[i] = Default::default();
             }
-        }
-
-        if targeted_device_field!(target, short_mode, datetime, year)
-            || targeted_device_field!(target, short_mode, datetime, month)
-            || targeted_device_field!(target, short_mode, datetime, day)
-            || targeted_device_field!(target, short_mode, datetime, hour)
-            || targeted_device_field!(target, short_mode, datetime, minute)
-            || targeted_device_field!(target, short_mode, datetime, second)
-            || targeted_device_field!(target, short_mode, datetime, dotw)
-            || targeted_device_field!(target, short_mode, datetime, doty)
-            || targeted_device_field!(target, short_mode, datetime, isdst)
-        {
-            self.io_memory.datetime.update();
         }
 
         Some(())
