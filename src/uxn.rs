@@ -238,7 +238,7 @@ impl Default for Stack {
 }
 
 impl core::fmt::Display for Stack {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> Result<(), core::fmt::Error> {
         let head = self.head as usize;
         let data = &self.data[0..head];
         write!(f, "{:x?}", data)
