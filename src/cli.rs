@@ -134,14 +134,14 @@ impl DateTime {
             libc::localtime_r(&now, &mut calendar_time);
         }
 
-        self.year = calendar_time.tm_year as u16;
+        self.year = uxn::host_short_to_uxn_short((calendar_time.tm_year + 1900) as u16);
         self.month = calendar_time.tm_mon as u8;
         self.day = calendar_time.tm_mday as u8;
         self.hour = calendar_time.tm_hour as u8;
         self.minute = calendar_time.tm_min as u8;
         self.second = calendar_time.tm_sec as u8;
         self.dotw = calendar_time.tm_wday as u8;
-        self.doty = calendar_time.tm_yday as u16;
+        self.doty = uxn::host_short_to_uxn_short(calendar_time.tm_yday as u16);
         self.isdst = calendar_time.tm_isdst as u8;
     }
 }
