@@ -14,16 +14,18 @@ pub enum UxnEvalResult {
     Ok,
     Fault {
         where_the_error_occured: u16,
-        instruction_that_faulted: u8,
+        instruction_that_faulted: u8, /* TODO: Change to `Instruction` */
         error_code: UxnError,
     },
 }
 
+/// The address to start executing code from
 pub const PAGE_PROGRAM: usize = 0x0100;
 const STACK_BYTE_COUNT: usize = 255;
 const RAM_BYTE_COUNT: usize = 64 * 1024;
 pub const IO_BYTE_COUNT: usize = 256;
 
+// TODO: Use numbered enum (without repeating the numbers in `From<u8>::from`
 /// Instruction without different modes
 enum SimpleOperation {
     Break,                  // BRK
@@ -38,6 +40,7 @@ struct ComplexOperationFlags {
     return_mode: bool,
 }
 
+// TODO: Use numbered enum (without repeating the numbers in `From<u8>::from`
 /// Instructions that support all the modes
 enum ComplexOperation {
     Increase,        // INC
@@ -73,6 +76,7 @@ enum ComplexOperation {
     Shift,           // SFT
 }
 
+// TODO: Represent as a single byte in memory
 enum Instruction {
     Simple(SimpleOperation),
     Literal { short_mode: bool, return_mode: bool }, // LIT (supports only 2 modes)
