@@ -598,17 +598,17 @@ impl Uxn {
                         write!(addr8 as u16, val)?;
                     }
                     ComplexOperation::LoadRelative => {
-                        let distance = stack_to_use!().pop8()?;
+                        let distance = stack_to_use!().pop8()? as i8;
                         done_taking_args!();
-                        let addr = program_counter - (PAGE_PROGRAM as u16) + (distance as u16);
+                        let addr = (program_counter + 1).wrapping_add_signed(distance as i16);
                         let value = read!(addr)?;
                         push!(value)?;
                     }
                     ComplexOperation::StoreRelative => {
-                        let distance = stack_to_use!().pop8()?;
-                        let addr = program_counter - (PAGE_PROGRAM as u16) + (distance as u16);
+                        let distance = stack_to_use!().pop8()? as i8;
                         let val = pop!()?;
                         done_taking_args!();
+                        let addr = (program_counter + 1).wrapping_add_signed(distance as i16);
                         write!(addr, val)?;
                     }
                     ComplexOperation::LoadAbsolute => {
