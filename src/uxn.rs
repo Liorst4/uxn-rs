@@ -791,7 +791,7 @@ fn test_opcodes() {
         }
     }
 
-    const ENCODED_TEST_ROM: &str = include_str!("../etc/tests.rom.hex");
+    const ENCODED_TEST_ROM: &str = include_str!("../tests/tests.rom.hex");
     let mut test_rom = vec![];
 
     for line in ENCODED_TEST_ROM.lines() {
