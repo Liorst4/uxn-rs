@@ -264,6 +264,7 @@ macro_rules! targeted_device_field {
         let offset = unsafe { std::ptr::addr_of!((*base).io_memory.$device.$field) };
         let offset: usize = unsafe { std::mem::transmute(offset) };
         let offset: u8 = offset as u8;
+        // TODO: Make `offset` a constant
 
         if $short_mode {
             ($target == offset) || (($target - 1) == offset)
@@ -276,6 +277,7 @@ macro_rules! targeted_device_field {
         let offset = unsafe { std::ptr::addr_of!((*base).io_memory.$device[$device_index].$field) };
         let offset: usize = unsafe { std::mem::transmute(offset) };
         let offset: u8 = offset as u8;
+        // TODO: Make `offset` a constant
 
         if $short_mode {
             ($target == offset) || (($target - 1) == offset)
