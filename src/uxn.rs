@@ -390,7 +390,7 @@ impl Uxn {
                         let distance = self
                             .read16(program_counter + 1)
                             .ok_or(UxnError::InvalidAddress)?;
-                        let destination = (program_counter + 3).overflowing_add(distance).0;
+                        let destination = (program_counter + 3).wrapping_add(distance);
                         return Ok(StepResult::ProgramCounter(destination));
                     };
                 }
@@ -478,10 +478,8 @@ impl Uxn {
                         let diff: i8 = diff as i8;
                         let diff: i16 = diff as i16;
                         let destination = program_counter
-                            .overflowing_add(1)
-                            .0
-                            .overflowing_add_signed(diff as i16)
-                            .0;
+                            .wrapping_add(1)
+                            .wrapping_add_signed(diff as i16);
 
                         return Ok(StepResult::ProgramCounter(destination));
                     };
@@ -491,7 +489,7 @@ impl Uxn {
                     ComplexOperation::Increase => {
                         let a = pop!()?;
                         done_taking_args!();
-                        push!(a.overflowing_add(1).0)?;
+                        push!(a.wrapping_add(1))?;
                     }
                     ComplexOperation::Pop => {
                         pop!()?;
@@ -639,19 +637,19 @@ impl Uxn {
                         let b = pop!()?;
                         let a = pop!()?;
                         done_taking_args!();
-                        push!(a.overflowing_add(b).0)?;
+                        push!(a.wrapping_add(b))?;
                     }
                     ComplexOperation::Subtract => {
                         let b = pop!()?;
                         let a = pop!()?;
                         done_taking_args!();
-                        push!(a.overflowing_sub(b).0)?;
+                        push!(a.wrapping_sub(b))?;
                     }
                     ComplexOperation::Multiply => {
                         let b = pop!()?;
                         let a = pop!()?;
                         done_taking_args!();
-                        push!(a.overflowing_mul(b).0)?;
+                        push!(a.wrapping_mul(b))?;
                     }
                     ComplexOperation::Divide => {
                         let b = pop!()?;
@@ -660,7 +658,7 @@ impl Uxn {
                         if b == 0 {
                             return Err(UxnError::MathError);
                         }
-                        push!(a.overflowing_div(b).0)?;
+                        push!(a.wrapping_div(b))?;
                     }
                     ComplexOperation::And => {
                         let b = pop!()?;
