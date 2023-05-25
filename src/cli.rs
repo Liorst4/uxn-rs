@@ -1,6 +1,6 @@
 mod uxn;
 
-use std::io::{Read, Seek, Write};
+use std::io::{Read, Write};
 
 #[repr(u8)]
 enum ConsoleType {
@@ -347,7 +347,13 @@ impl uxn::Host for UxnCli {
                             handle: file,
                         };
                     } else if path.is_file() {
-                        let file = std::fs::File::open(path).ok()?;
+                        let file = std::fs::OpenOptions::new()
+                            .read(true)
+                            .write(true)
+                            .append(self.io_memory.file[i].append != 0)
+                            .open(path)
+                            .ok()?;
+
                         self.open_files[i] = OpenedPath::File {
                             path: path.to_owned(),
                             handle: file,
@@ -414,10 +420,6 @@ impl uxn::Host for UxnCli {
                                 uxn::uxn_short_to_host_short(self.io_memory.file[i].write),
                                 length,
                             )?;
-
-                            if self.io_memory.file[i].append == 0 {
-                                handle.rewind().ok()?;
-                            }
 
                             return handle.write(src).map(|x| x as u16).ok();
                         }
