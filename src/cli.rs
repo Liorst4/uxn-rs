@@ -267,7 +267,7 @@ macro_rules! targeted_device_field {
         // TODO: Make `offset` a constant
 
         if $short_mode {
-            ($target == offset) || (($target - 1) == offset)
+            ($target == offset) || ($target > 1 && (($target - 1) == offset))
         } else {
             $target == offset
         }
@@ -280,7 +280,7 @@ macro_rules! targeted_device_field {
         // TODO: Make `offset` a constant
 
         if $short_mode {
-            ($target == offset) || (($target - 1) == offset)
+            ($target == offset) || ($target > 1 && (($target - 1) == offset))
         } else {
             $target == offset
         }
