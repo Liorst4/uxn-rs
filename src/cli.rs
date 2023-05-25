@@ -319,11 +319,13 @@ impl uxn::Host for UxnCli {
         if targeted_device_field!(target, short_mode, console, write) {
             let bytes = [self.io_memory.console.write];
             std::io::stdout().write(&bytes).unwrap();
+            std::io::stdout().flush().unwrap();
         }
 
         if targeted_device_field!(target, short_mode, console, error) {
             let bytes = [self.io_memory.console.error];
             std::io::stderr().write(&bytes).unwrap();
+            std::io::stderr().flush().unwrap();
         }
 
         if targeted_device_field!(target, short_mode, system, debug)
