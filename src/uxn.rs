@@ -178,7 +178,7 @@ pub fn uxn_short_to_host_short(short: u16) -> u16 {
 
 impl Stack {
     pub fn push8(&mut self, value: u8) -> Result<(), UxnError> {
-        if self.head == STACK_BYTE_COUNT as u8 {
+        if self.head == self.data.len() as u8 {
             return Err(UxnError::StackOverflow);
         }
 
@@ -196,7 +196,7 @@ impl Stack {
     }
 
     pub fn push16(&mut self, value: u16) -> Result<(), UxnError> {
-        if self.head >= (STACK_BYTE_COUNT as u8) - 2 {
+        if self.head >= (self.data.len() as u8) - 2 {
             return Err(UxnError::StackOverflow);
         }
         let value = host_short_to_uxn_bytes(value);
