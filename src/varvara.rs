@@ -552,7 +552,8 @@ fn inject_console_byte(vm: &mut uxn::Uxn, host: &mut Varvara, byte: u8, kind: Co
 fn main() {
     let mut args = std::env::args();
     let mut rom = vec![];
-    let mut file = std::fs::File::open(args.nth(1).unwrap()).unwrap();
+    let mut file =
+        std::fs::File::open(args.nth(1).expect("Expected a rom path as an argument")).unwrap();
     file.read_to_end(&mut rom).unwrap();
 
     let mut vm = uxn::Uxn::boot(&rom);
