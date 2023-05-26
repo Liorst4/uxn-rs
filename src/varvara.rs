@@ -12,6 +12,8 @@
 // You should have received a copy of the GNU General Public License along with
 // uxn-rs. If not, see <https://www.gnu.org/licenses/>.
 
+extern crate sdl2;
+
 mod uxn;
 
 use std::io::{Read, Write};
@@ -556,8 +558,23 @@ fn main() {
         std::fs::File::open(args.nth(1).expect("Expected a rom path as an argument")).unwrap();
     file.read_to_end(&mut rom).unwrap();
 
+    let sdl_context = sdl2::init().expect("Failed to initialize sdl2");
+    let sdl_video_subsystem = sdl_context
+        .video()
+        .expect("Failed to start sdl2's video subsystem");
+    let window = sdl_video_subsystem
+        .window("varvara", 800 /* TODO */, 800 /* TODO */)
+        .build()
+        .unwrap();
+    let mut canvas = window.into_canvas().build().unwrap();
+    canvas.set_draw_color(sdl2::pixels::Color::RGB(255, 0, 0));
+    canvas.clear();
+    canvas.present();
+
     let mut vm = uxn::Uxn::boot(&rom);
     let mut host = Varvara::default();
+
+    // Run initialization
     eval_with_fault_handling(&mut vm, &mut host, uxn::PAGE_PROGRAM as u16);
 
     // Process arguments
@@ -576,19 +593,49 @@ fn main() {
                 ConsoleType::ArgumentSeparator
             },
         )
+
+        // TODO: Refresh window
     }
 
-    // Process input
-    while host.io_memory.system.state == 0 {
+    let (stdin_tx, stdin_rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
         let mut byte = [0];
-        match std::io::stdin().read(&mut byte) {
-            Ok(amount_read) => {
-                if amount_read != 0 {
-                    inject_console_byte(&mut vm, &mut host, byte[0], ConsoleType::StdIn);
+        loop {
+            match std::io::stdin().read(&mut byte) {
+                Ok(amount_read) => {
+                    if amount_read != 0 {
+                        match stdin_tx.send(byte[0]) {
+                            Ok(_) => {}
+                            _ => break,
+                        }
+                    }
                 }
+                _ => break,
             }
-            _ => break,
         }
+    });
+
+    let mut event_pump = sdl_context.event_pump().unwrap();
+    const TARGET_FPS: u32 = 60;
+    'sdl_loop: while host.io_memory.system.state == 0 {
+        'stdin_read_loop: loop {
+            match stdin_rx.try_recv() {
+                Ok(byte) => {
+                    inject_console_byte(&mut vm, &mut host, byte, ConsoleType::StdIn);
+                }
+                _ => break 'stdin_read_loop,
+            }
+        }
+
+        for event in event_pump.poll_iter() {
+            match event {
+                sdl2::event::Event::Quit { timestamp: _ } => break 'sdl_loop,
+                _ => {}
+            }
+        }
+
+        // TODO: Compensate for slowdown
+        std::thread::sleep(std::time::Duration::from_secs(1) / TARGET_FPS);
     }
 }
 

@@ -11,6 +11,7 @@ path = "src/varvara.rs"
 
 [dependencies]
 libc = "0.2"
+sdl2 = "0.35"
 
 [profile.release]
 opt-level = "s"
