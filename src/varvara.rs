@@ -264,10 +264,8 @@ impl Default for OpenedPath {
     }
 }
 
-/// A subset of the varvara machine
-/// Supports the system, console, file and datetime devices
 #[derive(Default)]
-struct UxnCli {
+struct Varvara {
     io_memory: DeviceIOMemory,
     open_files: [OpenedPath; 2],
 }
@@ -301,7 +299,7 @@ macro_rules! targeted_device_field {
     }};
 }
 
-impl uxn::Host for UxnCli {
+impl uxn::Host for Varvara {
     fn dei(&mut self, _cpu: &mut uxn::Uxn, target: u8, short_mode: bool) -> Option<u16> {
         if targeted_device_field!(target, short_mode, datetime, year)
             || targeted_device_field!(target, short_mode, datetime, month)
@@ -499,7 +497,7 @@ impl uxn::Host for UxnCli {
     }
 }
 
-fn eval_with_fault_handling(vm: &mut uxn::Uxn, host: &mut UxnCli, entry_point: u16) {
+fn eval_with_fault_handling(vm: &mut uxn::Uxn, host: &mut Varvara, entry_point: u16) {
     match vm.eval(host, entry_point) {
         uxn::UxnEvalResult::Ok => {}
         uxn::UxnEvalResult::Fault {
@@ -544,7 +542,7 @@ fn eval_with_fault_handling(vm: &mut uxn::Uxn, host: &mut UxnCli, entry_point: u
     }
 }
 
-fn inject_console_byte(vm: &mut uxn::Uxn, host: &mut UxnCli, byte: u8, kind: ConsoleType) {
+fn inject_console_byte(vm: &mut uxn::Uxn, host: &mut Varvara, byte: u8, kind: ConsoleType) {
     host.io_memory.console.console_type = kind;
     host.io_memory.console.read = byte;
     let entry = uxn::uxn_short_to_host_short(host.io_memory.console.vector);
@@ -558,7 +556,7 @@ fn main() {
     file.read_to_end(&mut rom).unwrap();
 
     let mut vm = uxn::Uxn::boot(&rom);
-    let mut host = UxnCli::default();
+    let mut host = Varvara::default();
     eval_with_fault_handling(&mut vm, &mut host, uxn::PAGE_PROGRAM as u16);
 
     // Process arguments
