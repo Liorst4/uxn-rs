@@ -15,6 +15,7 @@
 extern crate sdl2;
 
 mod uxn;
+use uxn::Host;
 
 use std::io::{Read, Write};
 
@@ -38,9 +39,9 @@ impl Default for ConsoleType {
 struct System {
     halt: u16,
     _pad: [u8; 6], // TODO: expansion, friend and metadata
-    _red: u16,
-    _green: u16,
-    _blue: u16,
+    red: u16,
+    green: u16,
+    blue: u16,
     debug: u8,
     state: u8,
 }
@@ -55,6 +56,509 @@ struct Console {
     write: u8,
     error: u8,
     __pad: [u8; 6],
+}
+
+mod screen {
+    use super::*;
+
+    enum Sprite<'a> {
+        /// 1bit sprite
+        /// https://wiki.xxiivv.com/site/icn_format.html
+        ICN(&'a [u8; 8]),
+
+        /// 2bit sprite
+        /// https://wiki.xxiivv.com/site/chr_format.html
+        CHR(&'a [u8; 16]),
+    }
+
+    impl<'a> Sprite<'a> {
+        const WIDTH: u8 = 8;
+        const HEIGHT: u8 = 8;
+
+        fn in_uxn(uxn: &'a uxn::Uxn, address: u16, mode: SpriteMode) -> Option<Sprite<'a>> {
+            match mode {
+                SpriteMode::OneBit => {
+                    let slice = uxn.slice(address, 8)?;
+                    let sprite_ref = unsafe { std::mem::transmute(slice.as_ptr()) };
+                    Some(Sprite::ICN(sprite_ref))
+                }
+                SpriteMode::TwoBit => {
+                    let slice = uxn.slice(address, 16)?;
+                    let sprite_ref = unsafe { std::mem::transmute(slice.as_ptr()) };
+                    Some(Sprite::CHR(sprite_ref))
+                }
+            }
+        }
+
+        fn byte_count(&self) -> usize {
+            match self {
+                Sprite::ICN(sprite) => std::mem::size_of_val(sprite),
+                Sprite::CHR(sprite) => std::mem::size_of_val(sprite),
+            }
+        }
+
+        fn pixel(&self, y: u8, x: u8) -> u8 {
+            assert!(y < Self::HEIGHT && x < Self::WIDTH);
+            match self {
+                Sprite::ICN(sprite) => (sprite[y as usize] >> (7 - x)) & 0x1,
+                Sprite::CHR(sprite) => {
+                    let ch1 = (sprite[y as usize] >> x) & 0x1;
+                    let ch2 = ((sprite[(y + 8) as usize] >> x) & 0x1) << 1;
+                    ch1 + ch2
+                }
+            }
+        }
+    }
+
+    #[derive(Copy, Clone)]
+    #[repr(u8)]
+    enum Layer {
+        Background = 0,
+        Forground = 1,
+    }
+
+    fn rgb_to_palette(red: u16, green: u16, blue: u16) -> [u32; 4] {
+        fn short_to_be_nibbles(short: u16) -> [u8; 4] {
+            let bytes = u16::to_be_bytes(short);
+
+            fn high_nibble(byte: u8) -> u8 {
+                (byte & 0xf0) >> 4
+            }
+
+            fn low_nibble(byte: u8) -> u8 {
+                byte & 0x0f
+            }
+
+            return [
+                high_nibble(bytes[0]),
+                low_nibble(bytes[0]),
+                high_nibble(bytes[1]),
+                low_nibble(bytes[1]),
+            ];
+        }
+
+        /// 0x1 -> 0x11, 0xf -> 0xff
+        fn nibble_to_palindrome_byte(nibble: u8) -> u8 {
+            nibble | (nibble << 4)
+        }
+
+        let red = short_to_be_nibbles(red);
+        let green = short_to_be_nibbles(green);
+        let blue = short_to_be_nibbles(blue);
+
+        let mut palette: [u32; 4] = Default::default();
+        for nibble_index in 0..palette.len() {
+            palette[nibble_index] = u32::from_be_bytes(
+                [
+                    0xf,
+                    red[nibble_index],
+                    green[nibble_index],
+                    blue[nibble_index],
+                ]
+                .map(nibble_to_palindrome_byte),
+            );
+        }
+
+        return palette;
+    }
+
+    #[test]
+    fn test_rgb_to_palette() {
+        for (expected, (r, g, b)) in [
+            (
+                // From https://wiki.xxiivv.com/site/theme.html
+                [0xff000000, 0xffaa55cc, 0xff66ccaa, 0xffffffff],
+                (0x0a6f, 0x05cf, 0x0caf),
+            ),
+            (
+                // From piano.rom
+                [0xff000000, 0xffffffff, 0xffeecc22, 0xff333333],
+                (0x0fe3, 0x0fc3, 0x0f23),
+            ),
+            (
+                // From screen.rom
+                [0xffffffff, 0xff000000, 0xff77eecc, 0xffff0000],
+                (0xf07f, 0xf0e0, 0xf0c0),
+            ),
+        ] {
+            let result = rgb_to_palette(r, g, b);
+            println!("expected: {:#08x?}", expected);
+            println!(
+                "result: {:#08x?} (r: {:#04x} g: {:#04x} b: {:#04x})",
+                result, r, g, b
+            );
+            assert_eq!(result, expected);
+        }
+    }
+
+    #[derive(Default)]
+    pub struct Frame {
+        pub width: usize,
+        pub height: usize,
+
+        x1: usize,
+        y1: usize,
+        x2: usize,
+        y2: usize,
+
+        /// Four RGB888 pixels representing red, green, blue and alpha
+        palette: [u32; 4],
+
+        /// Each item is a `palette` index (2bit)
+        foreground: Vec<u8>,
+
+        /// Each item is a `palette` index (2bit)
+        /// Color0 is treated as transparent
+        background: Vec<u8>,
+
+        /// RGB888 pixels
+        pub pixels: Vec<u32>,
+    }
+
+    impl Frame {
+        // TODO: Rename
+        fn change(&mut self, x1: usize, y1: usize, x2: usize, y2: usize) {
+            self.x1 = std::cmp::min(x1, self.x1);
+            self.y1 = std::cmp::min(y1, self.y1);
+            self.x2 = std::cmp::max(x2, self.x2);
+            self.y2 = std::cmp::max(y2, self.y2);
+        }
+
+        fn fill(&mut self, layer: Layer, x1: u16, y1: u16, x2: u16, y2: u16, color: u8) {
+            let layer = match layer {
+                Layer::Forground => &mut self.foreground,
+                Layer::Background => &mut self.background,
+            };
+
+            for y in y1..std::cmp::min(y2, self.height as u16) {
+                for x in x1..std::cmp::min(x2, self.width as u16) {
+                    layer[x as usize + (y as usize * self.width)] = color;
+                }
+            }
+        }
+
+        fn blit(
+            &mut self,
+            layer: Layer,
+            sprite: Sprite,
+            x: u16,
+            y: u16,
+            _blending_bits: u8,
+            _flip_x: bool,
+            _flip_y: bool,
+        ) {
+            let layer = match layer {
+                Layer::Forground => &mut self.foreground,
+                Layer::Background => &mut self.background,
+            };
+
+            // TODO: Opaque
+            // TODO: flip_x
+            // TODO: flip_y
+            // TODO: blending_bits
+            // TODO: Bound checks
+
+            for row in 0..Sprite::HEIGHT {
+                for column in 0..Sprite::WIDTH {
+                    layer[(x as usize + column as usize)
+                        + ((y as usize + row as usize) * self.width)] = sprite.pixel(row, column);
+                }
+            }
+        }
+
+        pub fn set_palette(&mut self, red: u16, green: u16, blue: u16) {
+            self.palette = rgb_to_palette(red, green, blue);
+            self.change(0, 0, self.width, self.height);
+        }
+
+        pub fn resize(&mut self, width: u16, height: u16) {
+            const MIN_WIDTH: u16 = 0x8;
+            const MAX_WIDTH: u16 = 0x400;
+            const MIN_HEIGHT: u16 = MIN_WIDTH;
+            const MAX_HEIGHT: u16 = MAX_WIDTH;
+
+            if width < MIN_WIDTH
+                || height < MIN_HEIGHT
+                || width >= MAX_WIDTH
+                || height >= MAX_HEIGHT
+            {
+                return;
+            }
+
+            self.width = width as usize;
+            self.height = height as usize;
+            let pixel_count = self.width * self.height;
+
+            self.background.resize(pixel_count, 0);
+            self.foreground.resize(pixel_count, 0);
+            self.pixels
+                .resize(pixel_count * std::mem::size_of::<u32>(), 0);
+
+            for layer in [Layer::Forground, Layer::Background] {
+                self.fill(layer, 0, 0, self.width as u16, self.height as u16, 0);
+            }
+        }
+
+        /// Merge background, foreground and palette into a single image (`pixels`)
+        pub fn update_pixels(&mut self) {
+            let mut palette: [u32; 16] = Default::default();
+            let w = self.width;
+            let h = self.height;
+            let x1 = self.x1;
+            let y1 = self.y1;
+            let x2 = if self.x2 > w { w } else { self.x2 };
+            let y2 = if self.y2 > h { h } else { self.y2 };
+
+            for i in 0..palette.len() {
+                palette[i] = self.palette[if (i >> 2) != 0 { i >> 2 } else { i & 3 }];
+            }
+
+            for y in y1..y2 {
+                for x in x1..x2 {
+                    let i = x + y * w;
+                    self.pixels[i] =
+                        palette[(self.foreground[i] << 2 | self.background[i]) as usize];
+                }
+            }
+
+            self.y1 = 0xffff;
+            self.x1 = self.y1;
+            self.y2 = 0;
+            self.x2 = self.y2;
+        }
+    }
+
+    #[repr(u8)]
+    enum PixelMode {
+        Pixel = 0,
+        Fill = 1,
+    }
+
+    #[repr(u8)]
+    enum SpriteMode {
+        OneBit = 0,
+        TwoBit = 1,
+    }
+
+    trait Control {
+        fn get(&self) -> u8;
+
+        fn layer(&self) -> Layer {
+            const LAYER_MASK: u8 = 0b01000000;
+            if self.get() & LAYER_MASK != 0 {
+                Layer::Forground
+            } else {
+                Layer::Background
+            }
+        }
+
+        fn flip_y(&self) -> bool {
+            const FLIP_Y_MASK: u8 = 0b00100000;
+            self.get() & FLIP_Y_MASK != 0
+        }
+
+        fn flip_x(&self) -> bool {
+            const FLIP_X_MASK: u8 = 0b00010000;
+            self.get() & FLIP_X_MASK != 0
+        }
+    }
+
+    #[derive(Default)]
+    #[repr(packed(1))]
+    pub struct PixelFlags {
+        value: u8,
+    }
+
+    impl Control for PixelFlags {
+        fn get(&self) -> u8 {
+            self.value
+        }
+    }
+
+    impl PixelFlags {
+        fn color(&self) -> u8 {
+            const COLOR_MASK: u8 = 0b00000011;
+            self.value & COLOR_MASK
+        }
+
+        fn mode(&self) -> PixelMode {
+            const PIXEL_MODE_MASK: u8 = 0b10000000;
+            if (self.value & PIXEL_MODE_MASK) != 0 {
+                return PixelMode::Fill;
+            }
+            return PixelMode::Pixel;
+        }
+    }
+
+    #[derive(Default)]
+    #[repr(packed(1))]
+    pub struct SpriteFlags {
+        value: u8,
+    }
+
+    impl Control for SpriteFlags {
+        fn get(&self) -> u8 {
+            self.value
+        }
+    }
+
+    impl SpriteFlags {
+        fn blending(&self) -> u8 {
+            const BLENDING_MASK: u8 = 0b00001111;
+            self.value & BLENDING_MASK
+        }
+
+        fn mode(&self) -> SpriteMode {
+            const SPRITE_MODE_MASK: u8 = 0b10000000;
+            if (self.value & SPRITE_MODE_MASK) != 0 {
+                return SpriteMode::TwoBit;
+            }
+            return SpriteMode::OneBit;
+        }
+    }
+
+    #[derive(Default)]
+    #[repr(packed(1))]
+    struct AutoFlags {
+        value: u8,
+    }
+
+    impl AutoFlags {
+        fn length(&self) -> u8 {
+            const LENGTH_SHIFT: u8 = 4;
+            self.value >> LENGTH_SHIFT
+        }
+
+        fn addr(&self) -> bool {
+            const ADDR_MASK: u8 = 0b00000100;
+            (self.value & ADDR_MASK) != 0
+        }
+
+        fn y(&self) -> bool {
+            const Y_MASK: u8 = 0b00000010;
+            (self.value & Y_MASK) != 0
+        }
+
+        fn x(&self) -> bool {
+            const X_MASK: u8 = 0b00000001;
+            (self.value & X_MASK) != 0
+        }
+    }
+
+    #[derive(Default)]
+    #[repr(packed(1))]
+    pub struct IODevice {
+        pub vector: u16,
+        pub width: u16,
+        pub height: u16,
+        auto: AutoFlags,
+        _pad: u8,
+        x: u16,
+        y: u16,
+        addr: u16,
+        pub pixel: PixelFlags,
+        pub sprite: SpriteFlags,
+    }
+
+    impl IODevice {
+        pub fn draw_pixel(&mut self, frame: &mut Frame) {
+            let ctrl = &self.pixel;
+            let color = ctrl.color();
+            let mut x = uxn::uxn_short_to_host_short(self.x);
+            let mut y = uxn::uxn_short_to_host_short(self.y);
+            let layer = ctrl.layer();
+            match ctrl.mode() {
+                PixelMode::Fill => {
+                    let mut x2 = frame.width as u16;
+                    let mut y2 = frame.height as u16;
+
+                    if ctrl.flip_x() {
+                        x2 = x;
+                        x = 0;
+                    }
+
+                    if ctrl.flip_y() {
+                        y2 = y;
+                        y = 0;
+                    }
+
+                    frame.fill(layer, x, y, x2, y2, color);
+                    frame.change(x as usize, y as usize, x2 as usize, y2 as usize);
+                }
+                PixelMode::Pixel => {
+                    let width = frame.width as u16;
+                    let height = frame.height as u16;
+                    let layer = match layer {
+                        Layer::Background => &mut frame.background,
+                        Layer::Forground => &mut frame.foreground,
+                    };
+
+                    if x < width && y < height {
+                        layer[x as usize + y as usize * width as usize] = color;
+                    }
+
+                    // Apply auto flags
+                    if self.auto.x() {
+                        self.x = uxn::host_short_to_uxn_short(x.wrapping_add(1));
+                    }
+
+                    if self.auto.y() {
+                        self.y = uxn::host_short_to_uxn_short(y.wrapping_add(1));
+                    }
+                }
+            }
+        }
+
+        pub fn draw_sprite(&mut self, uxn: &mut uxn::Uxn, frame: &mut Frame) {
+            let ctrl = &self.sprite;
+            let move_ = &self.auto;
+            let length = move_.length();
+            let x = uxn::uxn_short_to_host_short(self.x);
+            let y = uxn::uxn_short_to_host_short(self.y);
+            let mut addr = uxn::uxn_short_to_host_short(self.addr);
+            let dx = if move_.x() { Sprite::WIDTH as u16 } else { 0 };
+            let dy = if move_.y() { Sprite::HEIGHT as u16 } else { 0 };
+            let layer = ctrl.layer();
+
+            for i in 0..length {
+                let sprite = Sprite::in_uxn(uxn, addr, ctrl.mode()).unwrap();
+                let byte_count = sprite.byte_count();
+
+                frame.blit(
+                    layer,
+                    sprite,
+                    x + (dy * i as u16),
+                    y + (dx * i as u16),
+                    ctrl.blending(),
+                    ctrl.flip_x(),
+                    ctrl.flip_y(),
+                );
+
+                if move_.addr() {
+                    addr += byte_count as u16;
+                }
+            }
+
+            frame.change(
+                x as usize,
+                y as usize,
+                x as usize + dy as usize * length as usize + Sprite::HEIGHT as usize,
+                y as usize + dx as usize * length as usize + Sprite::WIDTH as usize,
+            );
+
+            if move_.x() {
+                self.x = uxn::host_short_to_uxn_short(x.wrapping_add(dx as u16));
+            }
+
+            if move_.y() {
+                self.y = uxn::host_short_to_uxn_short(y.wrapping_add(dy as u16));
+            }
+
+            if move_.addr() {
+                self.addr = uxn::host_short_to_uxn_short(addr);
+            }
+        }
+    }
 }
 
 #[derive(Default)]
@@ -166,7 +670,8 @@ impl DateTime {
 struct DeviceIOMemory {
     system: System,
     console: Console,
-    _pad: [u8; 0x80],
+    screen: screen::IODevice,
+    _pad: [u8; 0x70],
     file: [File; 2],
     datetime: DateTime,
     __pad: [u8; 0x30],
@@ -177,7 +682,8 @@ impl Default for DeviceIOMemory {
         DeviceIOMemory {
             system: Default::default(),
             console: Default::default(),
-            _pad: [0; 0x80],
+            screen: Default::default(),
+            _pad: [0; 0x70],
             file: Default::default(),
             datetime: Default::default(),
             __pad: [0; 0x30],
@@ -270,16 +776,31 @@ impl Default for OpenedPath {
 struct Varvara {
     io_memory: DeviceIOMemory,
     open_files: [OpenedPath; 2],
+    frame: screen::Frame,
 }
 
-macro_rules! targeted_device_field {
-    ($target:expr, $short_mode:expr, $device:ident, $field: ident) => {{
+macro_rules! offset_of_device_field {
+    ($device:ident, $field: ident) => {{
         let base: *const DeviceIOMemory = std::ptr::null();
         let offset = unsafe { std::ptr::addr_of!((*base).$device.$field) };
         let offset: usize = unsafe { std::mem::transmute(offset) };
         let offset: u8 = offset as u8;
+        offset
         // TODO: Make `offset` a constant
+    }};
+    ($device:ident, $device_index:expr, $field: ident) => {{
+        let base: *const DeviceIOMemory = std::ptr::null();
+        let offset = unsafe { std::ptr::addr_of!((*base).$device[$device_index].$field) };
+        let offset: usize = unsafe { std::mem::transmute(offset) };
+        let offset: u8 = offset as u8;
+        offset
+        // TODO: Make `offset` a constant
+    }};
+}
 
+macro_rules! targeted_device_field {
+    ($target:expr, $short_mode:expr, $device:ident, $field: ident) => {{
+        let offset = offset_of_device_field!($device, $field);
         if $short_mode {
             ($target == offset) || ($target > 1 && (($target - 1) == offset))
         } else {
@@ -287,12 +808,7 @@ macro_rules! targeted_device_field {
         }
     }};
     ($target:expr, $short_mode:expr, $device:ident, $device_index:expr, $field: ident) => {{
-        let base: *const DeviceIOMemory = std::ptr::null();
-        let offset = unsafe { std::ptr::addr_of!((*base).$device[$device_index].$field) };
-        let offset: usize = unsafe { std::mem::transmute(offset) };
-        let offset: u8 = offset as u8;
-        // TODO: Make `offset` a constant
-
+        let offset = offset_of_device_field!($device, $device_index, $field);
         if $short_mode {
             ($target == offset) || ($target > 1 && (($target - 1) == offset))
         } else {
@@ -314,6 +830,13 @@ impl uxn::Host for Varvara {
             || targeted_device_field!(target, short_mode, datetime, isdst)
         {
             self.io_memory.datetime.update();
+        }
+
+        if targeted_device_field!(target, short_mode, screen, width)
+            || targeted_device_field!(target, short_mode, screen, height)
+        {
+            self.io_memory.screen.height = uxn::host_short_to_uxn_short(self.frame.height as u16);
+            self.io_memory.screen.width = uxn::host_short_to_uxn_short(self.frame.width as u16);
         }
 
         if short_mode {
@@ -495,6 +1018,33 @@ impl uxn::Host for Varvara {
             }
         }
 
+        if targeted_device_field!(target, short_mode, system, red)
+            || targeted_device_field!(target, short_mode, system, green)
+            || targeted_device_field!(target, short_mode, system, blue)
+        {
+            self.frame.set_palette(
+                uxn::uxn_short_to_host_short(self.io_memory.system.red),
+                uxn::uxn_short_to_host_short(self.io_memory.system.green),
+                uxn::uxn_short_to_host_short(self.io_memory.system.blue),
+            );
+        }
+
+        if targeted_device_field!(target, short_mode, screen, width)
+            || targeted_device_field!(target, short_mode, screen, height)
+        {
+            let width = uxn::uxn_short_to_host_short(self.io_memory.screen.width);
+            let height = uxn::uxn_short_to_host_short(self.io_memory.screen.height);
+            self.frame.resize(width, height);
+        }
+
+        if targeted_device_field!(target, short_mode, screen, pixel) {
+            self.io_memory.screen.draw_pixel(&mut self.frame);
+        }
+
+        if targeted_device_field!(target, short_mode, screen, sprite) {
+            self.io_memory.screen.draw_sprite(cpu, &mut self.frame);
+        }
+
         Some(())
     }
 }
@@ -551,6 +1101,98 @@ fn inject_console_byte(vm: &mut uxn::Uxn, host: &mut Varvara, byte: u8, kind: Co
     eval_with_fault_handling(vm, host, entry);
 }
 
+const WIDTH: u32 = 64 * 8;
+const HEIGHT: u32 = 40 * 8;
+const PAD: u32 = 2;
+const ZOOM: u32 = 2; // TODO: Parse from args
+
+// TODO: Don't use static variables
+static mut gWindow: *mut sdl2::sys::SDL_Window = std::ptr::null_mut();
+static mut gTexture: *mut sdl2::sys::SDL_Texture = std::ptr::null_mut();
+static mut gRenderer: *mut sdl2::sys::SDL_Renderer = std::ptr::null_mut();
+
+unsafe fn set_window_size(window: *mut sdl2::sys::SDL_Window, w: libc::c_int, h: libc::c_int) {
+    let mut win = sdl2::sys::SDL_Point { x: 0, y: 0 };
+    let mut win_old = sdl2::sys::SDL_Point { x: 0, y: 0 };
+
+    sdl2::sys::SDL_GetWindowPosition(window, &mut win.x, &mut win.y);
+    sdl2::sys::SDL_GetWindowSize(window, &mut win_old.x, &mut win_old.y);
+    if (w == win_old.x) && (h == win_old.y) {
+        return;
+    }
+    sdl2::sys::SDL_SetWindowSize(window, w, h);
+}
+
+unsafe fn set_size(uxn_screen: &mut screen::Frame, render_destination: &mut sdl2::rect::Rect) {
+    render_destination.x = PAD as i32;
+    render_destination.y = PAD as i32;
+    render_destination.w = uxn_screen.width as i32;
+    render_destination.h = uxn_screen.height as i32;
+
+    if gTexture != std::ptr::null_mut() {
+        sdl2::sys::SDL_DestroyTexture(gTexture);
+    }
+
+    sdl2::sys::SDL_RenderSetLogicalSize(
+        gRenderer,
+        (uxn_screen.width + (PAD as usize) * 2) as libc::c_int,
+        (uxn_screen.height + (PAD as usize) * 2) as libc::c_int,
+    );
+
+    gTexture = sdl2::sys::SDL_CreateTexture(
+        gRenderer,
+        sdl2::sys::SDL_PixelFormatEnum::SDL_PIXELFORMAT_RGB888 as u32,
+        sdl2::sys::SDL_TextureAccess::SDL_TEXTUREACCESS_STATIC as libc::c_int,
+        uxn_screen.width as libc::c_int,
+        uxn_screen.height as libc::c_int,
+    );
+    assert!(gTexture != std::ptr::null_mut()); // TODO Fault cpu on failure
+
+    let err =
+        sdl2::sys::SDL_SetTextureBlendMode(gTexture, sdl2::sys::SDL_BlendMode::SDL_BLENDMODE_NONE);
+    assert!(err == 0); // TODO Fault cpu on failure
+
+    let err = sdl2::sys::SDL_UpdateTexture(
+        gTexture,
+        std::ptr::null(),
+        uxn_screen.pixels.as_ptr() as *const libc::c_void,
+        (uxn_screen.width * std::mem::size_of::<u32>()) as libc::c_int,
+    );
+    assert!(err == 0); // TODO Fault cpu on failure
+
+    set_window_size(
+        gWindow,
+        ((uxn_screen.width as u32 + PAD * 2) * ZOOM) as libc::c_int,
+        ((uxn_screen.height as u32 + PAD * 2) * ZOOM) as libc::c_int,
+    );
+}
+
+unsafe fn redraw(uxn_screen: &mut screen::Frame, render_destination: &mut sdl2::rect::Rect) {
+    if render_destination.w as usize != uxn_screen.width
+        || render_destination.h as usize != uxn_screen.height
+    {
+        set_size(uxn_screen, render_destination);
+    }
+
+    uxn_screen.update_pixels();
+    let err = sdl2::sys::SDL_UpdateTexture(
+        gTexture,
+        std::ptr::null(),
+        uxn_screen.pixels.as_ptr() as *const libc::c_void,
+        (uxn_screen.width * std::mem::size_of::<u32>()) as i32,
+    );
+    assert!(err == 0); // TODO Fault cpu on failure
+
+    sdl2::sys::SDL_RenderClear(gRenderer);
+    sdl2::sys::SDL_RenderCopy(
+        gRenderer,
+        gTexture,
+        std::ptr::null(),
+        render_destination.raw(),
+    );
+    sdl2::sys::SDL_RenderPresent(gRenderer);
+}
+
 fn main() {
     let mut args = std::env::args();
     let mut rom = vec![];
@@ -563,19 +1205,51 @@ fn main() {
         .video()
         .expect("Failed to start sdl2's video subsystem");
     let window = sdl_video_subsystem
-        .window("varvara", 800 /* TODO */, 800 /* TODO */)
+        .window(
+            "varvara",
+            (WIDTH + PAD * 2) * ZOOM,
+            (HEIGHT + PAD * 2) * ZOOM,
+        )
+        .allow_highdpi()
         .build()
         .unwrap();
-    let mut canvas = window.into_canvas().build().unwrap();
-    canvas.set_draw_color(sdl2::pixels::Color::RGB(255, 0, 0));
-    canvas.clear();
-    canvas.present();
+    unsafe {
+        gWindow = window.raw();
+    }
+    let mut renderer = window.into_canvas().build().unwrap();
+    renderer.set_draw_color(sdl2::pixels::Color {
+        r: 0,
+        g: 0,
+        b: 0,
+        a: 0xff,
+    });
+    unsafe {
+        gRenderer = renderer.raw();
+    }
+    let mut render_destination = sdl2::rect::Rect::new(0, 0, 0, 0);
 
     let mut vm = uxn::Uxn::boot(&rom);
     let mut host = Varvara::default();
 
+    host.deo(
+        &mut vm,
+        offset_of_device_field!(screen, width),
+        WIDTH as u16,
+        true,
+    )
+    .unwrap();
+
+    host.deo(
+        &mut vm,
+        offset_of_device_field!(screen, height),
+        HEIGHT as u16,
+        true,
+    )
+    .unwrap();
+
     // Run initialization
     eval_with_fault_handling(&mut vm, &mut host, uxn::PAGE_PROGRAM as u16);
+    unsafe { redraw(&mut host.frame, &mut render_destination) };
 
     // Process arguments
     let args_len = args.len();
@@ -592,9 +1266,8 @@ fn main() {
             } else {
                 ConsoleType::ArgumentSeparator
             },
-        )
-
-        // TODO: Refresh window
+        );
+        unsafe { redraw(&mut host.frame, &mut render_destination) };
     }
 
     let (stdin_tx, stdin_rx) = std::sync::mpsc::channel();
@@ -626,6 +1299,13 @@ fn main() {
                 _ => break 'stdin_read_loop,
             }
         }
+
+        let screen_vector = uxn::uxn_short_to_host_short(host.io_memory.screen.vector);
+        if screen_vector != 0 {
+            eval_with_fault_handling(&mut vm, &mut host, screen_vector);
+        }
+
+        unsafe { redraw(&mut host.frame, &mut render_destination) };
 
         for event in event_pump.poll_iter() {
             match event {
