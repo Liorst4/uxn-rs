@@ -256,12 +256,14 @@ mod screen {
             // TODO: flip_x
             // TODO: flip_y
             // TODO: blending_bits
-            // TODO: Bound checks
 
             for row in 0..Sprite::HEIGHT {
                 for column in 0..Sprite::WIDTH {
-                    layer[(x as usize + column as usize)
-                        + ((y as usize + row as usize) * self.width)] = sprite.pixel(row, column);
+                    let target_x = x as usize + column as usize;
+                    let target_y = y as usize + row as usize;
+                    if (target_x < self.width) && (target_y < self.height) {
+                        layer[target_x + (target_y * self.width)] = sprite.pixel(row, column);
+                    }
                 }
             }
         }
