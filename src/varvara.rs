@@ -244,8 +244,8 @@ mod screen {
             x: u16,
             y: u16,
             _blending_bits: u8,
-            _flip_x: bool,
-            _flip_y: bool,
+            flip_x: bool,
+            flip_y: bool,
         ) {
             let layer = match layer {
                 Layer::Forground => &mut self.foreground,
@@ -253,14 +253,23 @@ mod screen {
             };
 
             // TODO: Opaque
-            // TODO: flip_x
-            // TODO: flip_y
             // TODO: blending_bits
 
             for row in 0..Sprite::HEIGHT {
                 for column in 0..Sprite::WIDTH {
-                    let target_x = x as usize + column as usize;
-                    let target_y = y as usize + row as usize;
+                    let target_x = x as usize
+                        + if flip_x {
+                            Sprite::WIDTH - 1 - column
+                        } else {
+                            column
+                        } as usize;
+                    let target_y = y as usize
+                        + if flip_y {
+                            Sprite::HEIGHT - 1 - row
+                        } else {
+                            row
+                        } as usize;
+
                     if (target_x < self.width) && (target_y < self.height) {
                         layer[target_x + (target_y * self.width)] = sprite.pixel(row, column);
                     }
