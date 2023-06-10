@@ -1129,91 +1129,63 @@ const HEIGHT: u32 = 40 * 8;
 const PAD: u32 = 2;
 const ZOOM: u32 = 2; // TODO: Parse from args
 
-// TODO: Don't use static variables
-static mut gWindow: *mut sdl2::sys::SDL_Window = std::ptr::null_mut();
-static mut gTexture: *mut sdl2::sys::SDL_Texture = std::ptr::null_mut();
-static mut gRenderer: *mut sdl2::sys::SDL_Renderer = std::ptr::null_mut();
-
-unsafe fn set_window_size(window: *mut sdl2::sys::SDL_Window, w: libc::c_int, h: libc::c_int) {
-    let mut win = sdl2::sys::SDL_Point { x: 0, y: 0 };
-    let mut win_old = sdl2::sys::SDL_Point { x: 0, y: 0 };
-
-    sdl2::sys::SDL_GetWindowPosition(window, &mut win.x, &mut win.y);
-    sdl2::sys::SDL_GetWindowSize(window, &mut win_old.x, &mut win_old.y);
-    if (w == win_old.x) && (h == win_old.y) {
-        return;
-    }
-    sdl2::sys::SDL_SetWindowSize(window, w, h);
-}
-
-unsafe fn set_size(uxn_screen: &mut screen::Frame, render_destination: &mut sdl2::rect::Rect) {
-    render_destination.x = PAD as i32;
-    render_destination.y = PAD as i32;
-    render_destination.w = uxn_screen.width as i32;
-    render_destination.h = uxn_screen.height as i32;
-
-    if gTexture != std::ptr::null_mut() {
-        sdl2::sys::SDL_DestroyTexture(gTexture);
-    }
-
-    sdl2::sys::SDL_RenderSetLogicalSize(
-        gRenderer,
-        (uxn_screen.width + (PAD as usize) * 2) as libc::c_int,
-        (uxn_screen.height + (PAD as usize) * 2) as libc::c_int,
-    );
-
-    gTexture = sdl2::sys::SDL_CreateTexture(
-        gRenderer,
-        sdl2::sys::SDL_PixelFormatEnum::SDL_PIXELFORMAT_RGB888 as u32,
-        sdl2::sys::SDL_TextureAccess::SDL_TEXTUREACCESS_STATIC as libc::c_int,
-        uxn_screen.width as libc::c_int,
-        uxn_screen.height as libc::c_int,
-    );
-    assert!(gTexture != std::ptr::null_mut()); // TODO Fault cpu on failure
-
-    let err =
-        sdl2::sys::SDL_SetTextureBlendMode(gTexture, sdl2::sys::SDL_BlendMode::SDL_BLENDMODE_NONE);
-    assert!(err == 0); // TODO Fault cpu on failure
-
-    let err = sdl2::sys::SDL_UpdateTexture(
-        gTexture,
-        std::ptr::null(),
-        uxn_screen.pixels.as_ptr() as *const libc::c_void,
-        (uxn_screen.width * std::mem::size_of::<u32>()) as libc::c_int,
-    );
-    assert!(err == 0); // TODO Fault cpu on failure
-
-    set_window_size(
-        gWindow,
-        ((uxn_screen.width as u32 + PAD * 2) * ZOOM) as libc::c_int,
-        ((uxn_screen.height as u32 + PAD * 2) * ZOOM) as libc::c_int,
-    );
-}
-
-unsafe fn redraw(uxn_screen: &mut screen::Frame, render_destination: &mut sdl2::rect::Rect) {
+fn redraw<'a>(
+    uxn_screen: &'a mut screen::Frame,
+    render_destination: &mut sdl2::rect::Rect,
+    renderer: &mut sdl2::render::WindowCanvas,
+) {
     if render_destination.w as usize != uxn_screen.width
         || render_destination.h as usize != uxn_screen.height
     {
-        set_size(uxn_screen, render_destination);
+        render_destination.x = PAD as i32;
+        render_destination.y = PAD as i32;
+        render_destination.w = uxn_screen.width as i32;
+        render_destination.h = uxn_screen.height as i32;
+
+        renderer
+            .set_logical_size(
+                (uxn_screen.width + (PAD as usize) * 2) as u32,
+                (uxn_screen.height + (PAD as usize) * 2) as u32,
+            )
+            .unwrap(); // TODO: Fault vm when it fails
+
+        // TODO: Create texture cache here?
+        // TODO: Resize window
     }
 
-    uxn_screen.update_pixels();
-    let err = sdl2::sys::SDL_UpdateTexture(
-        gTexture,
-        std::ptr::null(),
-        uxn_screen.pixels.as_ptr() as *const libc::c_void,
-        (uxn_screen.width * std::mem::size_of::<u32>()) as i32,
-    );
-    assert!(err == 0); // TODO Fault cpu on failure
+    // TODO: Don't allocate a new texture each render
+    let texture_creator = renderer.texture_creator();
+    let mut frame_texture = texture_creator
+        .create_texture(
+            sdl2::pixels::PixelFormatEnum::RGB888,
+            sdl2::render::TextureAccess::Static,
+            uxn_screen.width as u32,
+            uxn_screen.height as u32,
+        )
+        .unwrap(); // TODO: Fault vm when it fails
+    frame_texture.set_blend_mode(sdl2::render::BlendMode::None);
 
-    sdl2::sys::SDL_RenderClear(gRenderer);
-    sdl2::sys::SDL_RenderCopy(
-        gRenderer,
-        gTexture,
-        std::ptr::null(),
-        render_destination.raw(),
-    );
-    sdl2::sys::SDL_RenderPresent(gRenderer);
+    uxn_screen.update_pixels();
+
+    let pixel_data: &'a [u8] = unsafe {
+        std::slice::from_raw_parts(
+            std::mem::transmute(uxn_screen.pixels.as_ptr()),
+            std::mem::size_of::<u32>() * uxn_screen.pixels.len(),
+        )
+    };
+    frame_texture
+        .update(
+            None,
+            pixel_data,
+            uxn_screen.width * std::mem::size_of::<u32>(),
+        )
+        .unwrap(); // TODO: Fault vm when it fails
+
+    renderer.clear();
+    renderer
+        .copy(&frame_texture, None, *render_destination)
+        .unwrap(); // TODO: Fault vm when it fails
+    renderer.present();
 }
 
 fn main() {
@@ -1236,9 +1208,6 @@ fn main() {
         .allow_highdpi()
         .build()
         .unwrap();
-    unsafe {
-        gWindow = window.raw();
-    }
     let mut renderer = window.into_canvas().build().unwrap();
     renderer.set_draw_color(sdl2::pixels::Color {
         r: 0,
@@ -1246,9 +1215,6 @@ fn main() {
         b: 0,
         a: 0xff,
     });
-    unsafe {
-        gRenderer = renderer.raw();
-    }
     let mut render_destination = sdl2::rect::Rect::new(0, 0, 0, 0);
 
     let mut vm = uxn::Uxn::boot(&rom);
@@ -1272,7 +1238,7 @@ fn main() {
 
     // Run initialization
     eval_with_fault_handling(&mut vm, &mut host, uxn::PAGE_PROGRAM as u16);
-    unsafe { redraw(&mut host.frame, &mut render_destination) };
+    redraw(&mut host.frame, &mut render_destination, &mut renderer);
 
     // Process arguments
     let args_len = args.len();
@@ -1290,7 +1256,7 @@ fn main() {
                 ConsoleType::ArgumentSeparator
             },
         );
-        unsafe { redraw(&mut host.frame, &mut render_destination) };
+        redraw(&mut host.frame, &mut render_destination, &mut renderer);
     }
 
     let (stdin_tx, stdin_rx) = std::sync::mpsc::channel();
@@ -1328,7 +1294,7 @@ fn main() {
             eval_with_fault_handling(&mut vm, &mut host, screen_vector);
         }
 
-        unsafe { redraw(&mut host.frame, &mut render_destination) };
+        redraw(&mut host.frame, &mut render_destination, &mut renderer);
 
         for event in event_pump.poll_iter() {
             match event {
