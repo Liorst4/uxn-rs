@@ -270,8 +270,10 @@ mod screen {
 
                     let sprite_pixel = sprite.pixel(row, column);
                     let channel = (sprite_pixel & 1) | ((sprite_pixel >> 7) & 2);
-
-                    if (target_x < self.width) && (target_y < self.height) {
+                    if (target_x < self.width)
+                        && (target_y < self.height)
+                        && (opaque || (channel != 0))
+                    {
                         /// Copied from https://wiki.xxiivv.com/site/varvara.html#screen
                         const BLENDING: [[u8; 16]; 4] = [
                             [0, 0, 0, 0, 1, 0, 1, 1, 2, 2, 0, 2, 3, 3, 3, 0],
@@ -279,11 +281,8 @@ mod screen {
                             [1, 2, 3, 1, 1, 2, 3, 1, 1, 2, 3, 1, 1, 2, 3, 1],
                             [2, 3, 1, 2, 2, 3, 1, 2, 2, 3, 1, 2, 2, 3, 1, 2],
                         ];
-
-                        if opaque || (channel != 0) {
-                            layer[target_x + (target_y * self.width)] =
-                                BLENDING[channel as usize][blending_color as usize];
-                        }
+                        layer[target_x + (target_y * self.width)] =
+                            BLENDING[channel as usize][blending_color as usize];
                     }
                 }
             }
