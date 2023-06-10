@@ -243,17 +243,15 @@ mod screen {
             sprite: Sprite,
             x: u16,
             y: u16,
-            _blending_bits: u8,
+            blending_color: u8,
             flip_x: bool,
             flip_y: bool,
         ) {
+            let opaque = ((blending_color % 5) != 0) || ((!blending_color) != 0);
             let layer = match layer {
                 Layer::Forground => &mut self.foreground,
                 Layer::Background => &mut self.background,
             };
-
-            // TODO: Opaque
-            // TODO: blending_bits
 
             for row in 0..Sprite::HEIGHT {
                 for column in 0..Sprite::WIDTH {
@@ -270,8 +268,22 @@ mod screen {
                             row
                         } as usize;
 
+                    let sprite_pixel = sprite.pixel(row, column);
+                    let channel = (sprite_pixel & 1) | ((sprite_pixel >> 7) & 2);
+
                     if (target_x < self.width) && (target_y < self.height) {
-                        layer[target_x + (target_y * self.width)] = sprite.pixel(row, column);
+                        /// Copied from https://wiki.xxiivv.com/site/varvara.html#screen
+                        const BLENDING: [[u8; 16]; 4] = [
+                            [0, 0, 0, 0, 1, 0, 1, 1, 2, 2, 0, 2, 3, 3, 3, 0],
+                            [0, 1, 2, 3, 0, 1, 2, 3, 0, 1, 2, 3, 0, 1, 2, 3],
+                            [1, 2, 3, 1, 1, 2, 3, 1, 1, 2, 3, 1, 1, 2, 3, 1],
+                            [2, 3, 1, 2, 2, 3, 1, 2, 2, 3, 1, 2, 2, 3, 1, 2],
+                        ];
+
+                        if opaque || (channel != 0) {
+                            layer[target_x + (target_y * self.width)] =
+                                BLENDING[channel as usize][blending_color as usize];
+                        }
                     }
                 }
             }
