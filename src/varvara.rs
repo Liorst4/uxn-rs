@@ -196,6 +196,7 @@ mod screen {
         pub width: usize,
         pub height: usize,
 
+        // The area that changed during the last render
         x1: usize,
         y1: usize,
         x2: usize,
@@ -216,8 +217,8 @@ mod screen {
     }
 
     impl Frame {
-        // TODO: Rename
-        fn change(&mut self, x1: usize, y1: usize, x2: usize, y2: usize) {
+        /// Update the rectangle that contains the pixels that were affected by the last draw.
+        fn set_the_delta_area(&mut self, x1: usize, y1: usize, x2: usize, y2: usize) {
             self.x1 = std::cmp::min(x1, self.x1);
             self.y1 = std::cmp::min(y1, self.y1);
             self.x2 = std::cmp::max(x2, self.x2);
@@ -290,7 +291,7 @@ mod screen {
 
         pub fn set_palette(&mut self, red: u16, green: u16, blue: u16) {
             self.palette = rgb_to_palette(red, green, blue);
-            self.change(0, 0, self.width, self.height);
+            self.set_the_delta_area(0, 0, self.width, self.height);
         }
 
         pub fn resize(&mut self, width: u16, height: u16) {
@@ -505,7 +506,7 @@ mod screen {
                     }
 
                     frame.fill(layer, x, y, x2, y2, color);
-                    frame.change(x as usize, y as usize, x2 as usize, y2 as usize);
+                    frame.set_the_delta_area(x as usize, y as usize, x2 as usize, y2 as usize);
                 }
                 PixelMode::Pixel => {
                     let width = frame.width as u16;
@@ -561,7 +562,7 @@ mod screen {
                 }
             }
 
-            frame.change(
+            frame.set_the_delta_area(
                 x as usize,
                 y as usize,
                 x as usize + dy as usize * length as usize + Sprite::HEIGHT as usize,
