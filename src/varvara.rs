@@ -542,7 +542,7 @@ mod screen {
             let dy = if move_.y() { Sprite::HEIGHT as u16 } else { 0 };
             let layer = ctrl.layer();
 
-            for i in 0..length {
+            for i in 0..(length + 1) {
                 let sprite = Sprite::in_uxn(uxn, addr, ctrl.mode()).unwrap();
                 let byte_count = sprite.byte_count();
 
