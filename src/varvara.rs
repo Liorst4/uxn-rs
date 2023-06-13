@@ -324,7 +324,6 @@ mod screen {
 
         /// Merge background, foreground and palette into a single image (`pixels`)
         pub fn update_pixels(&mut self) {
-            let mut palette: [u32; 16] = Default::default();
             let w = self.width;
             let h = self.height;
             let x1 = self.x1;
@@ -332,15 +331,17 @@ mod screen {
             let x2 = if self.x2 > w { w } else { self.x2 };
             let y2 = if self.y2 > h { h } else { self.y2 };
 
-            for i in 0..palette.len() {
-                palette[i] = self.palette[if (i >> 2) != 0 { i >> 2 } else { i & 3 }];
-            }
-
             for y in y1..y2 {
                 for x in x1..x2 {
                     let i = x + y * w;
-                    self.pixels[i] =
-                        palette[(self.foreground[i] << 2 | self.background[i]) as usize];
+                    let palette_index_for_background = self.background[i];
+                    let palette_index_for_foreground = self.foreground[i];
+                    let palette_index_for_pixels = if palette_index_for_foreground == 0 {
+                        palette_index_for_background
+                    } else {
+                        palette_index_for_foreground
+                    };
+                    self.pixels[i] = self.palette[palette_index_for_pixels as usize];
                 }
             }
 
