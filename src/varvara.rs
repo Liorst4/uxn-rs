@@ -587,6 +587,30 @@ mod screen {
 
 #[derive(Default)]
 #[repr(packed(1))]
+struct Controller {
+    vector: u16,
+    button: u8,
+    key: u8,
+    func: u8,
+    _p2: u8,
+    _p3: u8,
+    _p4: u8,
+    _pad: [u8; 8],
+}
+
+impl Controller {
+    const A: u8 = 0b00000001;
+    const B: u8 = 0b00000010;
+    const SELECT: u8 = 0b00000100;
+    const START: u8 = 0b00001000;
+    const UP: u8 = 0b00010000;
+    const DOWN: u8 = 0b00100000;
+    const LEFT: u8 = 0b01000000;
+    const RIGHT: u8 = 0b10000000;
+}
+
+#[derive(Default)]
+#[repr(packed(1))]
 struct File {
     _vector: u16,
     success: u16,
@@ -695,10 +719,12 @@ struct DeviceIOMemory {
     system: System,
     console: Console,
     screen: screen::IODevice,
-    _pad: [u8; 0x70],
+    _pad: [u8; 0x50],
+    controller: Controller,
+    __pad: [u8; 0x10],
     file: [File; 2],
     datetime: DateTime,
-    __pad: [u8; 0x30],
+    ___pad: [u8; 0x30],
 }
 
 impl Default for DeviceIOMemory {
@@ -707,10 +733,12 @@ impl Default for DeviceIOMemory {
             system: Default::default(),
             console: Default::default(),
             screen: Default::default(),
-            _pad: [0; 0x70],
+            _pad: [0; 0x50],
+            controller: Default::default(),
+            __pad: [0; 0x10],
             file: Default::default(),
             datetime: Default::default(),
-            __pad: [0; 0x30],
+            ___pad: [0; 0x30],
         }
     }
 }
@@ -1189,6 +1217,22 @@ fn redraw<'a>(
     renderer.present();
 }
 
+fn controller_button_from_sdl_keycode(key: sdl2::keyboard::Keycode) -> Option<u8> {
+    match key {
+        sdl2::keyboard::Keycode::LCtrl | sdl2::keyboard::Keycode::RCtrl => Some(Controller::A),
+        sdl2::keyboard::Keycode::LAlt | sdl2::keyboard::Keycode::RAlt => Some(Controller::B),
+        sdl2::keyboard::Keycode::LShift
+        | sdl2::keyboard::Keycode::RShift
+        | sdl2::keyboard::Keycode::AcBack => Some(Controller::SELECT),
+        sdl2::keyboard::Keycode::Home | sdl2::keyboard::Keycode::AcHome => Some(Controller::START),
+        sdl2::keyboard::Keycode::Up => Some(Controller::UP),
+        sdl2::keyboard::Keycode::Down => Some(Controller::DOWN),
+        sdl2::keyboard::Keycode::Left => Some(Controller::LEFT),
+        sdl2::keyboard::Keycode::Right => Some(Controller::RIGHT),
+        _ => None,
+    }
+}
+
 fn main() {
     let mut args = std::env::args();
     let mut rom = vec![];
@@ -1300,6 +1344,52 @@ fn main() {
         for event in event_pump.poll_iter() {
             match event {
                 sdl2::event::Event::Quit { timestamp: _ } => break 'sdl_loop,
+                sdl2::event::Event::KeyUp {
+                    timestamp: _,
+                    window_id: _,
+                    keycode,
+                    scancode: _,
+                    keymod: _,
+                    repeat,
+                } => {
+                    if keycode.is_some() && !repeat {
+                        let button = controller_button_from_sdl_keycode(keycode.unwrap());
+                        if button.is_some() {
+                            let mask = !button.unwrap();
+                            host.io_memory.controller.button &= mask;
+                            let entry =
+                                uxn::uxn_short_to_host_short(host.io_memory.controller.vector);
+                            eval_with_fault_handling(&mut vm, &mut host, entry);
+                        }
+                    }
+                }
+                sdl2::event::Event::KeyDown {
+                    timestamp: _,
+                    window_id: _,
+                    keycode,
+                    scancode: _,
+                    keymod: _,
+                    repeat,
+                } => {
+                    if keycode.is_some() && !repeat {
+                        let button = controller_button_from_sdl_keycode(keycode.unwrap());
+                        if button.is_some() {
+                            host.io_memory.controller.button |= button.unwrap();
+                            let entry =
+                                uxn::uxn_short_to_host_short(host.io_memory.controller.vector);
+                            eval_with_fault_handling(&mut vm, &mut host, entry);
+                        }
+                    }
+                }
+
+                // TODO: sdl2::event::Event::JoyButtonUp
+                // TODO: sdl2::event::Event::JoyButtonDown
+                // TODO: sdl2::event::Event::JoyHatMotion
+                // TODO: sdl2::event::Event::JoyAxisMotion
+                // TODO: sdl2::event::Event::JoyBallMotion
+                // TODO: sdl2::event::Event::ControllerAxisMotion
+                // TODO: sdl2::event::Event::TextInput ?
+                // TODO: sdl2::event::Event::TextEditing ?
                 _ => {}
             }
         }
