@@ -1217,20 +1217,54 @@ fn redraw<'a>(
     renderer.present();
 }
 
-fn controller_button_from_sdl_keycode(key: sdl2::keyboard::Keycode) -> Option<u8> {
+fn controller_button_from_sdl_keycode(key: sdl2::keyboard::Keycode) -> u8 {
     match key {
-        sdl2::keyboard::Keycode::LCtrl | sdl2::keyboard::Keycode::RCtrl => Some(Controller::A),
-        sdl2::keyboard::Keycode::LAlt | sdl2::keyboard::Keycode::RAlt => Some(Controller::B),
+        sdl2::keyboard::Keycode::LCtrl | sdl2::keyboard::Keycode::RCtrl => Controller::A,
+        sdl2::keyboard::Keycode::LAlt | sdl2::keyboard::Keycode::RAlt => Controller::B,
         sdl2::keyboard::Keycode::LShift
         | sdl2::keyboard::Keycode::RShift
-        | sdl2::keyboard::Keycode::AcBack => Some(Controller::SELECT),
-        sdl2::keyboard::Keycode::Home | sdl2::keyboard::Keycode::AcHome => Some(Controller::START),
-        sdl2::keyboard::Keycode::Up => Some(Controller::UP),
-        sdl2::keyboard::Keycode::Down => Some(Controller::DOWN),
-        sdl2::keyboard::Keycode::Left => Some(Controller::LEFT),
-        sdl2::keyboard::Keycode::Right => Some(Controller::RIGHT),
-        _ => None,
+        | sdl2::keyboard::Keycode::AcBack => Controller::SELECT,
+        sdl2::keyboard::Keycode::Home | sdl2::keyboard::Keycode::AcHome => Controller::START,
+        sdl2::keyboard::Keycode::Up => Controller::UP,
+        sdl2::keyboard::Keycode::Down => Controller::DOWN,
+        sdl2::keyboard::Keycode::Left => Controller::LEFT,
+        sdl2::keyboard::Keycode::Right => Controller::RIGHT,
+        _ => 0,
     }
+}
+
+fn controller_key_from_sdl_keycode(
+    key: sdl2::keyboard::Keycode,
+    keymod: sdl2::keyboard::Mod,
+) -> u8 {
+    // NOTE: Assuming the sdl2::keyboard::Keycode is ordered like ASCII
+
+    if (key as i32) > u8::MAX as i32 {
+        return 0;
+    }
+
+    let key_b = key as u8;
+    if (key_b < ' ' as u8) || key == sdl2::keyboard::Keycode::Delete {
+        return key_b;
+    }
+
+    if keymod.contains(sdl2::keyboard::Mod::LCTRLMOD)
+        || keymod.contains(sdl2::keyboard::Mod::RCTRLMOD)
+    {
+        if key_b < 'a' as u8 {
+            return key_b;
+        } else if key_b <= 'z' as u8 {
+            if keymod.contains(sdl2::keyboard::Mod::LSHIFTMOD)
+                || keymod.contains(sdl2::keyboard::Mod::RSHIFTMOD)
+            {
+                return key_b - ('a' as u8 - 'A' as u8);
+            } else {
+                return key_b;
+            }
+        }
+    }
+
+    return 0;
 }
 
 fn main() {
@@ -1354,8 +1388,8 @@ fn main() {
                 } => {
                     if keycode.is_some() && !repeat {
                         let button = controller_button_from_sdl_keycode(keycode.unwrap());
-                        if button.is_some() {
-                            let mask = !button.unwrap();
+                        if button != 0 {
+                            let mask = !button;
                             host.io_memory.controller.button &= mask;
                             let entry =
                                 uxn::uxn_short_to_host_short(host.io_memory.controller.vector);
@@ -1368,16 +1402,22 @@ fn main() {
                     window_id: _,
                     keycode,
                     scancode: _,
-                    keymod: _,
+                    keymod,
                     repeat,
                 } => {
-                    if keycode.is_some() && !repeat {
-                        let button = controller_button_from_sdl_keycode(keycode.unwrap());
-                        if button.is_some() {
-                            host.io_memory.controller.button |= button.unwrap();
-                            let entry =
-                                uxn::uxn_short_to_host_short(host.io_memory.controller.vector);
+                    if keycode.is_some() {
+                        let entry = uxn::uxn_short_to_host_short(host.io_memory.controller.vector);
+                        let key = controller_key_from_sdl_keycode(keycode.unwrap(), keymod);
+                        if key != 0 {
+                            host.io_memory.controller.key = key;
                             eval_with_fault_handling(&mut vm, &mut host, entry);
+                            host.io_memory.controller.key = 0;
+                        } else if !repeat {
+                            let button = controller_button_from_sdl_keycode(keycode.unwrap());
+                            if button != 0 {
+                                host.io_memory.controller.button |= button;
+                                eval_with_fault_handling(&mut vm, &mut host, entry);
+                            }
                         }
                     }
                 }
