@@ -1233,6 +1233,16 @@ fn controller_button_from_sdl_keycode(key: sdl2::keyboard::Keycode) -> u8 {
     }
 }
 
+fn inject_button_event(vm: &mut uxn::Uxn, host: &mut Varvara, button: u8, pressed_down: bool) {
+    let entry = uxn::uxn_short_to_host_short(host.io_memory.controller.vector);
+    if pressed_down {
+        host.io_memory.controller.button |= button;
+    } else {
+        host.io_memory.controller.button &= !button;
+    }
+    eval_with_fault_handling(vm, host, entry);
+}
+
 fn controller_key_from_sdl_keycode(
     key: sdl2::keyboard::Keycode,
     keymod: sdl2::keyboard::Mod,
@@ -1265,6 +1275,13 @@ fn controller_key_from_sdl_keycode(
     }
 
     return 0;
+}
+
+fn inject_key_event(vm: &mut uxn::Uxn, host: &mut Varvara, key: u8) {
+    host.io_memory.controller.key = key;
+    let entry = uxn::uxn_short_to_host_short(host.io_memory.controller.vector);
+    eval_with_fault_handling(vm, host, entry);
+    host.io_memory.controller.key = 0;
 }
 
 fn main() {
@@ -1389,11 +1406,7 @@ fn main() {
                     if keycode.is_some() && !repeat {
                         let button = controller_button_from_sdl_keycode(keycode.unwrap());
                         if button != 0 {
-                            let mask = !button;
-                            host.io_memory.controller.button &= mask;
-                            let entry =
-                                uxn::uxn_short_to_host_short(host.io_memory.controller.vector);
-                            eval_with_fault_handling(&mut vm, &mut host, entry);
+                            inject_button_event(&mut vm, &mut host, button, false);
                         }
                     }
                 }
@@ -1406,17 +1419,13 @@ fn main() {
                     repeat,
                 } => {
                     if keycode.is_some() {
-                        let entry = uxn::uxn_short_to_host_short(host.io_memory.controller.vector);
                         let key = controller_key_from_sdl_keycode(keycode.unwrap(), keymod);
                         if key != 0 {
-                            host.io_memory.controller.key = key;
-                            eval_with_fault_handling(&mut vm, &mut host, entry);
-                            host.io_memory.controller.key = 0;
+                            inject_key_event(&mut vm, &mut host, key);
                         } else if !repeat {
                             let button = controller_button_from_sdl_keycode(keycode.unwrap());
                             if button != 0 {
-                                host.io_memory.controller.button |= button;
-                                eval_with_fault_handling(&mut vm, &mut host, entry);
+                                inject_button_event(&mut vm, &mut host, button, true);
                             }
                         }
                     }
@@ -1427,12 +1436,8 @@ fn main() {
                     text,
                 } => {
                     for b in text.as_bytes() {
-                        host.io_memory.controller.key = *b;
-                        let entry = uxn::uxn_short_to_host_short(host.io_memory.controller.vector);
-                        eval_with_fault_handling(&mut vm, &mut host, entry);
+                        inject_key_event(&mut vm, &mut host, *b);
                     }
-
-                    host.io_memory.controller.key = 0;
                 }
 
                 // TODO: sdl2::event::Event::JoyButtonUp
