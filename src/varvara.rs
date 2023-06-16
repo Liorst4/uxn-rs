@@ -1381,6 +1381,19 @@ fn main() {
                         }
                     }
                 }
+                sdl2::event::Event::TextInput {
+                    timestamp: _,
+                    window_id: _,
+                    text,
+                } => {
+                    for b in text.as_bytes() {
+                        host.io_memory.controller.key = *b;
+                        let entry = uxn::uxn_short_to_host_short(host.io_memory.controller.vector);
+                        eval_with_fault_handling(&mut vm, &mut host, entry);
+                    }
+
+                    host.io_memory.controller.key = 0;
+                }
 
                 // TODO: sdl2::event::Event::JoyButtonUp
                 // TODO: sdl2::event::Event::JoyButtonDown
@@ -1388,7 +1401,6 @@ fn main() {
                 // TODO: sdl2::event::Event::JoyAxisMotion
                 // TODO: sdl2::event::Event::JoyBallMotion
                 // TODO: sdl2::event::Event::ControllerAxisMotion
-                // TODO: sdl2::event::Event::TextInput ?
                 // TODO: sdl2::event::Event::TextEditing ?
                 _ => {}
             }
