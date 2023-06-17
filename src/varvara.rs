@@ -1291,8 +1291,12 @@ fn inject_key_event(vm: &mut uxn::Uxn, host: &mut Varvara, key: u8) {
 }
 
 fn inject_mouse_motion_event(vm: &mut uxn::Uxn, host: &mut Varvara, x: u16, y: u16) {
-    // TODO: Bind inside window area
+    let width = uxn::uxn_short_to_host_short(host.io_memory.screen.width);
+    let x = std::cmp::min(x.saturating_sub(PAD as u16), width - 1);
     host.io_memory.mouse.x = uxn::host_short_to_uxn_short(x);
+
+    let height = uxn::uxn_short_to_host_short(host.io_memory.screen.height);
+    let y = std::cmp::min(y.saturating_sub(PAD as u16), height - 1);
     host.io_memory.mouse.y = uxn::host_short_to_uxn_short(y);
 
     let entry = uxn::uxn_short_to_host_short(host.io_memory.mouse.vector);
