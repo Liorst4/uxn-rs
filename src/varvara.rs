@@ -1177,15 +1177,19 @@ fn redraw<'a>(
         render_destination.w = uxn_screen.width as i32;
         render_destination.h = uxn_screen.height as i32;
 
+        let padded_width = (uxn_screen.width + ((PAD as usize) * 2)) as u32;
+        let padded_height = (uxn_screen.height + ((PAD as usize) * 2)) as u32;
+
         renderer
-            .set_logical_size(
-                (uxn_screen.width + (PAD as usize) * 2) as u32,
-                (uxn_screen.height + (PAD as usize) * 2) as u32,
-            )
+            .set_logical_size(padded_width, padded_height)
+            .unwrap(); // TODO: Fault vm when it fails
+
+        renderer
+            .window_mut()
+            .set_size(padded_width * ZOOM, padded_height * ZOOM)
             .unwrap(); // TODO: Fault vm when it fails
 
         // TODO: Create texture cache here?
-        // TODO: Resize window
     }
 
     // TODO: Don't allocate a new texture each render
