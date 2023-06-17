@@ -75,17 +75,27 @@ mod screen {
         const WIDTH: u8 = 8;
         const HEIGHT: u8 = 8;
 
+        fn from_bytes(bytes: &'a [u8]) -> Option<Sprite<'a>> {
+            if bytes.len() == 8 {
+                let sprite_ref = unsafe { std::mem::transmute(bytes.as_ptr()) };
+                Some(Sprite::ICN(sprite_ref))
+            } else if bytes.len() == 16 {
+                let sprite_ref = unsafe { std::mem::transmute(bytes.as_ptr()) };
+                Some(Sprite::CHR(sprite_ref))
+            } else {
+                None
+            }
+        }
+
         fn in_uxn(uxn: &'a uxn::Uxn, address: u16, mode: SpriteMode) -> Option<Sprite<'a>> {
             match mode {
                 SpriteMode::OneBit => {
                     let slice = uxn.slice(address, 8)?;
-                    let sprite_ref = unsafe { std::mem::transmute(slice.as_ptr()) };
-                    Some(Sprite::ICN(sprite_ref))
+                    Self::from_bytes(slice)
                 }
                 SpriteMode::TwoBit => {
                     let slice = uxn.slice(address, 16)?;
-                    let sprite_ref = unsafe { std::mem::transmute(slice.as_ptr()) };
-                    Some(Sprite::CHR(sprite_ref))
+                    Self::from_bytes(slice)
                 }
             }
         }
@@ -102,12 +112,68 @@ mod screen {
             match self {
                 Sprite::ICN(sprite) => (sprite[y as usize] >> (7 - x)) & 0x1,
                 Sprite::CHR(sprite) => {
-                    let ch1 = (sprite[y as usize] >> x) & 0x1;
-                    let ch2 = ((sprite[(y + 8) as usize] >> x) & 0x1) << 1;
+                    let ch1 = (sprite[y as usize] >> (7 - x)) & 0x1;
+                    let ch2 = ((sprite[(y + 8) as usize] >> (7 - x)) & 0x1) << 1;
                     ch1 + ch2
                 }
             }
         }
+    }
+
+    #[test]
+    fn test_sanity_chr() {
+        // From https://wiki.xxiivv.com/site/chr_format.html
+        const TILE: [u8; 16] = [
+            0xf8, 0xf8, 0xf8, 0xf8, 0xf8, 0x00, 0x00, 0x00, 0x00, 0x00, 0x3e, 0x3e, 0x3e, 0x3e,
+            0x3e, 0x00,
+        ];
+
+        const EXPECTED_PIXELS: [[u8; 8]; 8] = [
+            [1, 1, 1, 1, 1, 0, 0, 0],
+            [1, 1, 1, 1, 1, 0, 0, 0],
+            [1, 1, 3, 3, 3, 2, 2, 0],
+            [1, 1, 3, 3, 3, 2, 2, 0],
+            [1, 1, 3, 3, 3, 2, 2, 0],
+            [0, 0, 2, 2, 2, 2, 2, 0],
+            [0, 0, 2, 2, 2, 2, 2, 0],
+            [0, 0, 0, 0, 0, 0, 0, 0],
+        ];
+
+        let sprite = Sprite::from_bytes(&TILE).unwrap();
+        let mut pixels: [[u8; 8]; 8] = Default::default();
+
+        for y in 0..Sprite::HEIGHT {
+            for x in 0..Sprite::WIDTH {
+                pixels[y as usize][x as usize] = sprite.pixel(y, x);
+            }
+        }
+
+        assert_eq!(EXPECTED_PIXELS, pixels);
+    }
+
+    #[test]
+    fn test_sanity_icn() {
+        // From https://wiki.xxiivv.com/site/icn_format.html
+        const TILE: [u8; 8] = [0x00, 0x3c, 0x42, 0x7e, 0x40, 0x42, 0x3c, 0x00];
+        const EXPECTED_PIXELS: [[u8; 8]; 8] = [
+            [0, 0, 0, 0, 0, 0, 0, 0],
+            [0, 0, 1, 1, 1, 1, 0, 0],
+            [0, 1, 0, 0, 0, 0, 1, 0],
+            [0, 1, 1, 1, 1, 1, 1, 0],
+            [0, 1, 0, 0, 0, 0, 0, 0],
+            [0, 1, 0, 0, 0, 0, 1, 0],
+            [0, 0, 1, 1, 1, 1, 0, 0],
+            [0, 0, 0, 0, 0, 0, 0, 0],
+        ];
+        let sprite = Sprite::from_bytes(&TILE).unwrap();
+        let mut pixels: [[u8; 8]; 8] = Default::default();
+        for y in 0..Sprite::HEIGHT {
+            for x in 0..Sprite::WIDTH {
+                pixels[y as usize][x as usize] = sprite.pixel(y, x);
+            }
+        }
+
+        assert_eq!(EXPECTED_PIXELS, pixels);
     }
 
     #[derive(Copy, Clone)]
