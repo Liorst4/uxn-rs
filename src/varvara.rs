@@ -1375,6 +1375,8 @@ fn main() {
 
     let mut event_pump = sdl_context.event_pump().unwrap();
     const TARGET_FPS: u32 = 60;
+    let max_sleep_duration: std::time::Duration = std::time::Duration::from_secs(1) / TARGET_FPS;
+    let mut time_at_end_of_last_iteration = std::time::Instant::now();
     'sdl_loop: while host.io_memory.system.state == 0 {
         'stdin_read_loop: loop {
             match stdin_rx.try_recv() {
@@ -1451,8 +1453,14 @@ fn main() {
             }
         }
 
-        // TODO: Compensate for slowdown
-        std::thread::sleep(std::time::Duration::from_secs(1) / TARGET_FPS);
+        let time_since_last_iteration = std::time::Instant::now() - time_at_end_of_last_iteration;
+        if time_since_last_iteration < max_sleep_duration {
+            let duration_to_sleep = max_sleep_duration - time_since_last_iteration;
+            std::thread::sleep(duration_to_sleep);
+        }
+
+        // TODO: Implement iterator so if a `continue` is used before this line, than things won't break
+        time_at_end_of_last_iteration = std::time::Instant::now();
     }
 }
 
