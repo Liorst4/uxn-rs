@@ -657,11 +657,11 @@ struct Controller {
     vector: u16,
     button: u8,
     key: u8,
-    func: u8,
+    _pad: u8,
     _p2: u8,
     _p3: u8,
     _p4: u8,
-    _pad: [u8; 8],
+    __pad: [u8; 8],
 }
 
 impl Controller {
