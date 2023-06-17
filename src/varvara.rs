@@ -715,32 +715,19 @@ impl DateTime {
 }
 
 #[repr(packed(1))]
+#[derive(Default)]
 struct DeviceIOMemory {
     system: System,
     console: Console,
     screen: screen::IODevice,
-    _pad: [u8; 0x50],
+    _audio_pad: [[u8; 0x10]; 4],
+    _pad: [u8; 0x10],
     controller: Controller,
-    __pad: [u8; 0x10],
+    _mouse_pad: [u8; 0x10],
     file: [File; 2],
     datetime: DateTime,
-    ___pad: [u8; 0x30],
-}
-
-impl Default for DeviceIOMemory {
-    fn default() -> Self {
-        DeviceIOMemory {
-            system: Default::default(),
-            console: Default::default(),
-            screen: Default::default(),
-            _pad: [0; 0x50],
-            controller: Default::default(),
-            __pad: [0; 0x10],
-            file: Default::default(),
-            datetime: Default::default(),
-            ___pad: [0; 0x30],
-        }
-    }
+    _reserved_pad: [[u8; 0x10]; 2],
+    __pad: [u8; 0x10],
 }
 
 impl<'a> DeviceIOMemory {
