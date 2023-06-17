@@ -611,6 +611,25 @@ impl Controller {
 
 #[derive(Default)]
 #[repr(packed(1))]
+struct Mouse {
+    vector: u16,
+    x: u16,
+    y: u16,
+    state: u8,
+    _pad: [u8; 3],
+    scrollx: u16,
+    scrolly: u16,
+    __pad: [u8; 2],
+}
+
+impl Mouse {
+    const MOUSE1: u8 = 0b00000001;
+    const MOUSE2: u8 = 0b00000010;
+    const MOUSE3: u8 = 0b00000100;
+}
+
+#[derive(Default)]
+#[repr(packed(1))]
 struct File {
     _vector: u16,
     success: u16,
@@ -723,7 +742,7 @@ struct DeviceIOMemory {
     _audio_pad: [[u8; 0x10]; 4],
     _pad: [u8; 0x10],
     controller: Controller,
-    _mouse_pad: [u8; 0x10],
+    mouse: Mouse,
     file: [File; 2],
     datetime: DateTime,
     _reserved_pad: [[u8; 0x10]; 2],
@@ -1271,6 +1290,49 @@ fn inject_key_event(vm: &mut uxn::Uxn, host: &mut Varvara, key: u8) {
     host.io_memory.controller.key = 0;
 }
 
+fn inject_mouse_motion_event(vm: &mut uxn::Uxn, host: &mut Varvara, x: u16, y: u16) {
+    // TODO: Bind inside window area
+    host.io_memory.mouse.x = uxn::host_short_to_uxn_short(x);
+    host.io_memory.mouse.y = uxn::host_short_to_uxn_short(y);
+
+    let entry = uxn::uxn_short_to_host_short(host.io_memory.mouse.vector);
+    eval_with_fault_handling(vm, host, entry);
+}
+
+fn mouse_button_from_sdl(button: sdl2::mouse::MouseButton) -> u8 {
+    match button {
+        sdl2::mouse::MouseButton::Left => Mouse::MOUSE1,
+        sdl2::mouse::MouseButton::Right => Mouse::MOUSE2,
+        sdl2::mouse::MouseButton::Middle => Mouse::MOUSE3,
+        _ => 0,
+    }
+}
+
+fn inject_mouse_button_event(
+    vm: &mut uxn::Uxn,
+    host: &mut Varvara,
+    button: u8,
+    pressed_down: bool,
+) {
+    if pressed_down {
+        host.io_memory.mouse.state |= button;
+    } else {
+        host.io_memory.mouse.state &= !button;
+    }
+
+    let entry = uxn::uxn_short_to_host_short(host.io_memory.mouse.vector);
+    eval_with_fault_handling(vm, host, entry);
+}
+
+fn inject_mouse_scroll_event(vm: &mut uxn::Uxn, host: &mut Varvara, x: i16, y: i16) {
+    host.io_memory.mouse.scrollx = uxn::host_signed_short_to_uxn_short(x);
+    host.io_memory.mouse.scrolly = uxn::host_signed_short_to_uxn_short(y);
+    let entry = uxn::uxn_short_to_host_short(host.io_memory.mouse.vector);
+    eval_with_fault_handling(vm, host, entry);
+    host.io_memory.mouse.scrollx = uxn::host_signed_short_to_uxn_short(0);
+    host.io_memory.mouse.scrolly = uxn::host_signed_short_to_uxn_short(0);
+}
+
 fn main() {
     let mut args = std::env::args();
     let mut rom = vec![];
@@ -1299,6 +1361,7 @@ fn main() {
         a: 0xff,
     });
     let mut render_destination = sdl2::rect::Rect::new(0, 0, 0, 0);
+    sdl_context.mouse().show_cursor(false);
 
     let mut vm = uxn::Uxn::boot(&rom);
     let mut host = Varvara::default();
@@ -1428,6 +1491,56 @@ fn main() {
                         inject_key_event(&mut vm, &mut host, *b);
                     }
                 }
+                sdl2::event::Event::MouseMotion {
+                    timestamp: _,
+                    window_id: _,
+                    which: _,
+                    mousestate: _,
+                    x,
+                    y,
+                    xrel: _,
+                    yrel: _,
+                } => {
+                    inject_mouse_motion_event(&mut vm, &mut host, x as u16, y as u16);
+                }
+                sdl2::event::Event::MouseButtonDown {
+                    timestamp: _,
+                    window_id: _,
+                    which: _,
+                    mouse_btn,
+                    clicks: _,
+                    x: _,
+                    y: _,
+                } => {
+                    let button = mouse_button_from_sdl(mouse_btn);
+                    if button != 0 {
+                        inject_mouse_button_event(&mut vm, &mut host, button, true);
+                    }
+                }
+                sdl2::event::Event::MouseButtonUp {
+                    timestamp: _,
+                    window_id: _,
+                    which: _,
+                    mouse_btn,
+                    clicks: _,
+                    x: _,
+                    y: _,
+                } => {
+                    let button = mouse_button_from_sdl(mouse_btn);
+                    if button != 0 {
+                        inject_mouse_button_event(&mut vm, &mut host, button, false);
+                    }
+                }
+                sdl2::event::Event::MouseWheel {
+                    timestamp: _,
+                    window_id: _,
+                    which: _,
+                    x,
+                    y,
+                    direction: _,
+                } => {
+                    inject_mouse_scroll_event(&mut vm, &mut host, x as i16, -(y as i16));
+                }
 
                 // TODO: sdl2::event::Event::JoyButtonUp
                 // TODO: sdl2::event::Event::JoyButtonDown
@@ -1436,6 +1549,9 @@ fn main() {
                 // TODO: sdl2::event::Event::JoyBallMotion
                 // TODO: sdl2::event::Event::ControllerAxisMotion
                 // TODO: sdl2::event::Event::TextEditing ?
+                // TODO: sdl2::event::Event::FingerDown
+                // TODO: sdl2::event::Event::FingerUp
+                // TODO: sdl2::event::Event::FingerMotion
                 _ => {}
             }
         }

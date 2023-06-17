@@ -190,6 +190,10 @@ pub fn uxn_short_to_host_short(short: u16) -> u16 {
     u16::from_be(short)
 }
 
+pub fn host_signed_short_to_uxn_short(short: i16) -> u16 {
+    i16::to_be(short) as u16
+}
+
 impl Stack {
     pub fn push8(&mut self, value: u8) -> Result<(), UxnError> {
         if self.head == self.data.len() as u8 {
