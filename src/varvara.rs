@@ -37,11 +37,11 @@ impl Default for ConsoleType {
 #[derive(Default)]
 #[repr(packed(1))]
 struct System {
-    halt: u16,
+    halt: uxn::Short,
     _pad: [u8; 6], // TODO: expansion, friend and metadata
-    red: u16,
-    green: u16,
-    blue: u16,
+    red: uxn::Short,
+    green: uxn::Short,
+    blue: uxn::Short,
     debug: u8,
     state: u8,
 }
@@ -49,7 +49,7 @@ struct System {
 #[derive(Default)]
 #[repr(packed(1))]
 struct Console {
-    vector: u16,
+    vector: uxn::Short,
     read: u8,
     _pad: u32,
     console_type: ConsoleType,
@@ -538,14 +538,14 @@ mod screen {
     #[derive(Default)]
     #[repr(packed(1))]
     pub struct IODevice {
-        pub vector: u16,
-        pub width: u16,
-        pub height: u16,
+        pub vector: uxn::Short,
+        pub width: uxn::Short,
+        pub height: uxn::Short,
         auto: AutoFlags,
         _pad: u8,
-        x: u16,
-        y: u16,
-        addr: u16,
+        x: uxn::Short,
+        y: uxn::Short,
+        addr: uxn::Short,
         pub pixel: PixelFlags,
         pub sprite: SpriteFlags,
     }
@@ -554,8 +554,8 @@ mod screen {
         pub fn draw_pixel(&mut self, frame: &mut Frame) {
             let ctrl = &self.pixel;
             let color = ctrl.color();
-            let mut x = uxn::uxn_short_to_host_short(self.x);
-            let mut y = uxn::uxn_short_to_host_short(self.y);
+            let mut x = self.x.get();
+            let mut y = self.y.get();
             let layer = ctrl.layer();
             match ctrl.mode() {
                 PixelMode::Fill => {
@@ -589,11 +589,11 @@ mod screen {
 
                     // Apply auto flags
                     if self.auto.x() {
-                        self.x = uxn::host_short_to_uxn_short(x.wrapping_add(1));
+                        self.x.set(x.wrapping_add(1));
                     }
 
                     if self.auto.y() {
-                        self.y = uxn::host_short_to_uxn_short(y.wrapping_add(1));
+                        self.y.set(y.wrapping_add(1));
                     }
                 }
             }
@@ -603,9 +603,9 @@ mod screen {
             let ctrl = &self.sprite;
             let move_ = &self.auto;
             let length = move_.length();
-            let x = uxn::uxn_short_to_host_short(self.x);
-            let y = uxn::uxn_short_to_host_short(self.y);
-            let mut addr = uxn::uxn_short_to_host_short(self.addr);
+            let x = self.x.get();
+            let y = self.y.get();
+            let mut addr = self.addr.get();
             let dx = if move_.x() { Sprite::WIDTH as u16 } else { 0 };
             let dy = if move_.y() { Sprite::HEIGHT as u16 } else { 0 };
             let layer = ctrl.layer();
@@ -637,15 +637,15 @@ mod screen {
             );
 
             if move_.x() {
-                self.x = uxn::host_short_to_uxn_short(x.wrapping_add(dx as u16));
+                self.x.set(x.wrapping_add(dx as u16));
             }
 
             if move_.y() {
-                self.y = uxn::host_short_to_uxn_short(y.wrapping_add(dy as u16));
+                self.y.set(y.wrapping_add(dy as u16));
             }
 
             if move_.addr() {
-                self.addr = uxn::host_short_to_uxn_short(addr);
+                self.addr.set(addr);
             }
         }
     }
@@ -654,7 +654,7 @@ mod screen {
 #[derive(Default)]
 #[repr(packed(1))]
 struct Controller {
-    vector: u16,
+    vector: uxn::Short,
     button: u8,
     key: u8,
     _pad: u8,
@@ -678,13 +678,13 @@ impl Controller {
 #[derive(Default)]
 #[repr(packed(1))]
 struct Mouse {
-    vector: u16,
-    x: u16,
-    y: u16,
+    vector: uxn::Short,
+    x: uxn::Short,
+    y: uxn::Short,
     state: u8,
     _pad: [u8; 3],
-    scrollx: u16,
-    scrolly: u16,
+    scrollx: uxn::Short,
+    scrolly: uxn::Short,
     __pad: [u8; 2],
 }
 
@@ -697,15 +697,15 @@ impl Mouse {
 #[derive(Default)]
 #[repr(packed(1))]
 struct File {
-    _vector: u16,
-    success: u16,
-    stat: u16,
+    _vector: uxn::Short,
+    success: uxn::Short,
+    stat: uxn::Short,
     delete: u8,
     append: u8,
-    name: u16,
-    length: u16,
-    read: u16,
-    write: u16,
+    name: uxn::Short,
+    length: uxn::Short,
+    read: uxn::Short,
+    write: uxn::Short,
 }
 
 fn complies_with_sandbox_rules(path: &std::path::Path) -> bool {
@@ -731,7 +731,7 @@ fn complies_with_sandbox_rules(path: &std::path::Path) -> bool {
 
 impl File {
     fn path<'a>(&self, uxn: &'a uxn::Uxn) -> Option<&'a std::path::Path> {
-        let address_of_name_in_uxn = uxn::uxn_short_to_host_short(self.name);
+        let address_of_name_in_uxn = self.name.get();
         let mut name_byte_count: u16 = 0;
         while uxn.read8(address_of_name_in_uxn + name_byte_count)? != 0 {
             name_byte_count += 1;
@@ -747,21 +747,21 @@ impl File {
     }
 
     fn get_operation_length(&self) -> u16 {
-        uxn::uxn_short_to_host_short(self.length)
+        self.length.get()
     }
 }
 
 #[derive(Default)]
 #[repr(packed(1))]
 struct DateTime {
-    year: u16,
+    year: uxn::Short,
     month: u8,
     day: u8,
     hour: u8,
     minute: u8,
     second: u8,
     dotw: u8,
-    doty: u16,
+    doty: uxn::Short,
     isdst: u8,
     _pad: [u8; 5],
 }
@@ -787,14 +787,14 @@ impl DateTime {
             libc::localtime_r(&now, &mut calendar_time);
         }
 
-        self.year = uxn::host_short_to_uxn_short((calendar_time.tm_year + 1900) as u16);
+        self.year.set((calendar_time.tm_year + 1900) as u16);
         self.month = calendar_time.tm_mon as u8;
         self.day = calendar_time.tm_mday as u8;
         self.hour = calendar_time.tm_hour as u8;
         self.minute = calendar_time.tm_min as u8;
         self.second = calendar_time.tm_sec as u8;
         self.dotw = calendar_time.tm_wday as u8;
-        self.doty = uxn::host_short_to_uxn_short(calendar_time.tm_yday as u16);
+        self.doty.set(calendar_time.tm_yday as u16);
         self.isdst = calendar_time.tm_isdst as u8;
     }
 }
@@ -825,9 +825,9 @@ impl<'a> DeviceIOMemory {
     }
 
     fn read16(&self, offset: u8) -> Option<u16> {
-        let low = self.read8(offset)?;
-        let high = self.read8(offset + 1)?;
-        return Some(uxn::uxn_bytes_to_host_short([low, high]));
+        let first = self.read8(offset)?;
+        let second = self.read8(offset + 1)?;
+        return Some(uxn::Short::u16_from_bytes([first, second]));
     }
 
     fn as_raw_bytes_mut(&'a mut self) -> &'a mut [u8; uxn::IO_BYTE_COUNT] {
@@ -840,13 +840,13 @@ impl<'a> DeviceIOMemory {
     }
 
     fn write16(&mut self, offset: u8, value: u16) -> Option<()> {
-        let value = uxn::host_short_to_uxn_bytes(value);
+        let value = uxn::Short::u16_to_bytes(value);
 
-        let high = self.as_raw_bytes_mut().get_mut((offset + 1) as usize)?;
-        *high = value[1];
+        let first = self.as_raw_bytes_mut().get_mut((offset + 1) as usize)?;
+        *first = value[1];
 
-        let low = self.as_raw_bytes_mut().get_mut(offset as usize)?;
-        *low = value[0];
+        let second = self.as_raw_bytes_mut().get_mut(offset as usize)?;
+        *second = value[0];
 
         Some(())
     }
@@ -959,8 +959,8 @@ impl uxn::Host for Varvara {
         if targeted_device_field!(target, short_mode, screen, width)
             || targeted_device_field!(target, short_mode, screen, height)
         {
-            self.io_memory.screen.height = uxn::host_short_to_uxn_short(self.frame.height as u16);
-            self.io_memory.screen.width = uxn::host_short_to_uxn_short(self.frame.width as u16);
+            self.io_memory.screen.height.set(self.frame.height as u16);
+            self.io_memory.screen.width.set(self.frame.width as u16);
         }
 
         if short_mode {
@@ -1037,7 +1037,7 @@ impl uxn::Host for Varvara {
                     match &mut self.open_files[i] {
                         OpenedPath::File { path: _, handle } => handle
                             .read(cpu.slice_mut(
-                                uxn::uxn_short_to_host_short(self.io_memory.file[i].read),
+                                self.io_memory.file[i].read.get(),
                                 self.io_memory.file[i].get_operation_length(),
                             )?)
                             .ok()
@@ -1059,7 +1059,7 @@ impl uxn::Host for Varvara {
                                 *read_index += 1;
                             }
                             cpu.slice_mut(
-                                uxn::uxn_short_to_host_short(self.io_memory.file[i].read),
+                                self.io_memory.file[i].read.get(),
                                 entries_read.len() as u16,
                             )?
                             .copy_from_slice(&entries_read);
@@ -1069,7 +1069,7 @@ impl uxn::Host for Varvara {
                     }
                 }()
                 .unwrap_or(0);
-                self.io_memory.file[i].success = uxn::host_short_to_uxn_short(bytes_read);
+                self.io_memory.file[i].success.set(bytes_read);
             }
 
             if targeted_device_field!(target, short_mode, file, i, write) {
@@ -1077,18 +1077,14 @@ impl uxn::Host for Varvara {
                     match &mut self.open_files[i] {
                         OpenedPath::File { path: _, handle } => {
                             let length = self.io_memory.file[i].get_operation_length();
-                            let src = cpu.slice(
-                                uxn::uxn_short_to_host_short(self.io_memory.file[i].write),
-                                length,
-                            )?;
-
+                            let src = cpu.slice(self.io_memory.file[i].write.get(), length)?;
                             return handle.write(src).map(|x| x as u16).ok();
                         }
                         _ => None,
                     }
                 }()
                 .unwrap_or(0);
-                self.io_memory.file[i].success = uxn::host_short_to_uxn_short(bytes_written);
+                self.io_memory.file[i].success.set(bytes_written);
             }
 
             if targeted_device_field!(target, short_mode, file, i, stat) {
@@ -1106,15 +1102,12 @@ impl uxn::Host for Varvara {
                         self.io_memory.file[i].get_operation_length(),
                         entry.len() as u16,
                     );
-                    let dst = cpu.slice_mut(
-                        uxn::uxn_short_to_host_short(self.io_memory.file[i].stat),
-                        length,
-                    )?;
+                    let dst = cpu.slice_mut(self.io_memory.file[i].stat.get(), length)?;
                     dst.copy_from_slice(&entry);
                     Some(length)
                 }()
                 .unwrap_or(0);
-                self.io_memory.file[i].success = uxn::host_short_to_uxn_short(bytes_written);
+                self.io_memory.file[i].success.set(bytes_written);
             }
 
             if targeted_device_field!(target, short_mode, file, i, delete)
@@ -1147,17 +1140,17 @@ impl uxn::Host for Varvara {
             || targeted_device_field!(target, short_mode, system, blue)
         {
             self.frame.set_palette(
-                uxn::uxn_short_to_host_short(self.io_memory.system.red),
-                uxn::uxn_short_to_host_short(self.io_memory.system.green),
-                uxn::uxn_short_to_host_short(self.io_memory.system.blue),
+                self.io_memory.system.red.get(),
+                self.io_memory.system.green.get(),
+                self.io_memory.system.blue.get(),
             );
         }
 
         if targeted_device_field!(target, short_mode, screen, width)
             || targeted_device_field!(target, short_mode, screen, height)
         {
-            let width = uxn::uxn_short_to_host_short(self.io_memory.screen.width);
-            let height = uxn::uxn_short_to_host_short(self.io_memory.screen.height);
+            let width = self.io_memory.screen.width.get();
+            let height = self.io_memory.screen.height.get();
             self.frame.resize(width, height);
         }
 
@@ -1181,7 +1174,7 @@ fn eval_with_fault_handling(vm: &mut uxn::Uxn, host: &mut Varvara, entry_point: 
             instruction_that_faulted,
             error_code,
         } => {
-            let fault_handler = uxn::uxn_short_to_host_short(host.io_memory.system.halt);
+            let fault_handler = host.io_memory.system.halt.get();
             if fault_handler != 0 {
                 // Empty the stacks
                 vm.working_stack.head = 0;
@@ -1221,7 +1214,7 @@ fn eval_with_fault_handling(vm: &mut uxn::Uxn, host: &mut Varvara, entry_point: 
 fn inject_console_byte(vm: &mut uxn::Uxn, host: &mut Varvara, byte: u8, kind: ConsoleType) {
     host.io_memory.console.console_type = kind;
     host.io_memory.console.read = byte;
-    let entry = uxn::uxn_short_to_host_short(host.io_memory.console.vector);
+    let entry = host.io_memory.console.vector.get();
     eval_with_fault_handling(vm, host, entry);
 }
 
@@ -1310,7 +1303,7 @@ fn controller_button_from_sdl_keycode(key: sdl2::keyboard::Keycode) -> u8 {
 }
 
 fn inject_button_event(vm: &mut uxn::Uxn, host: &mut Varvara, button: u8, pressed_down: bool) {
-    let entry = uxn::uxn_short_to_host_short(host.io_memory.controller.vector);
+    let entry = host.io_memory.controller.vector.get();
     if pressed_down {
         host.io_memory.controller.button |= button;
     } else {
@@ -1355,21 +1348,21 @@ fn controller_key_from_sdl_keycode(
 
 fn inject_key_event(vm: &mut uxn::Uxn, host: &mut Varvara, key: u8) {
     host.io_memory.controller.key = key;
-    let entry = uxn::uxn_short_to_host_short(host.io_memory.controller.vector);
+    let entry = host.io_memory.controller.vector.get();
     eval_with_fault_handling(vm, host, entry);
     host.io_memory.controller.key = 0;
 }
 
 fn inject_mouse_motion_event(vm: &mut uxn::Uxn, host: &mut Varvara, x: u16, y: u16) {
-    let width = uxn::uxn_short_to_host_short(host.io_memory.screen.width);
+    let width = host.io_memory.screen.width.get();
     let x = std::cmp::min(x.saturating_sub(PAD as u16), width - 1);
-    host.io_memory.mouse.x = uxn::host_short_to_uxn_short(x);
+    host.io_memory.mouse.x.set(x);
 
-    let height = uxn::uxn_short_to_host_short(host.io_memory.screen.height);
+    let height = host.io_memory.screen.height.get();
     let y = std::cmp::min(y.saturating_sub(PAD as u16), height - 1);
-    host.io_memory.mouse.y = uxn::host_short_to_uxn_short(y);
+    host.io_memory.mouse.y.set(y);
 
-    let entry = uxn::uxn_short_to_host_short(host.io_memory.mouse.vector);
+    let entry = host.io_memory.mouse.vector.get();
     eval_with_fault_handling(vm, host, entry);
 }
 
@@ -1394,17 +1387,17 @@ fn inject_mouse_button_event(
         host.io_memory.mouse.state &= !button;
     }
 
-    let entry = uxn::uxn_short_to_host_short(host.io_memory.mouse.vector);
+    let entry = host.io_memory.mouse.vector.get();
     eval_with_fault_handling(vm, host, entry);
 }
 
 fn inject_mouse_scroll_event(vm: &mut uxn::Uxn, host: &mut Varvara, x: i16, y: i16) {
-    host.io_memory.mouse.scrollx = uxn::host_signed_short_to_uxn_short(x);
-    host.io_memory.mouse.scrolly = uxn::host_signed_short_to_uxn_short(y);
-    let entry = uxn::uxn_short_to_host_short(host.io_memory.mouse.vector);
+    host.io_memory.mouse.scrollx.set_signed(x);
+    host.io_memory.mouse.scrolly.set_signed(y);
+    let entry = host.io_memory.mouse.vector.get();
     eval_with_fault_handling(vm, host, entry);
-    host.io_memory.mouse.scrollx = uxn::host_signed_short_to_uxn_short(0);
-    host.io_memory.mouse.scrolly = uxn::host_signed_short_to_uxn_short(0);
+    host.io_memory.mouse.scrollx.set_signed(0);
+    host.io_memory.mouse.scrolly.set_signed(0);
 }
 
 fn main() {
@@ -1511,7 +1504,7 @@ fn main() {
             }
         }
 
-        let screen_vector = uxn::uxn_short_to_host_short(host.io_memory.screen.vector);
+        let screen_vector = host.io_memory.screen.vector.get();
         if screen_vector != 0 {
             eval_with_fault_handling(&mut vm, &mut host, screen_vector);
         }

@@ -174,24 +174,48 @@ pub struct Stack {
     pub data: [u8; STACK_BYTE_COUNT],
 }
 
-pub fn uxn_bytes_to_host_short(bytes: [u8; 2]) -> u16 {
-    u16::from_be_bytes(bytes)
+#[repr(packed)]
+#[derive(Default, Clone, Copy)]
+pub struct Short {
+    big_endian_bytes: [u8; 2],
 }
 
-pub fn host_short_to_uxn_bytes(short: u16) -> [u8; 2] {
-    u16::to_be_bytes(short)
-}
+impl Short {
+    pub fn from_bytes(bytes: [u8; 2]) -> Short {
+        Short {
+            big_endian_bytes: bytes,
+        }
+    }
 
-pub fn host_short_to_uxn_short(short: u16) -> u16 {
-    u16::to_be(short)
-}
+    pub fn from_u16(value: u16) -> Short {
+        Short {
+            big_endian_bytes: u16::to_be_bytes(value),
+        }
+    }
 
-pub fn uxn_short_to_host_short(short: u16) -> u16 {
-    u16::from_be(short)
-}
+    pub fn to_bytes(self) -> [u8; 2] {
+        self.big_endian_bytes
+    }
 
-pub fn host_signed_short_to_uxn_short(short: i16) -> u16 {
-    i16::to_be(short) as u16
+    pub fn set(&mut self, value: u16) {
+        self.big_endian_bytes = u16::to_be_bytes(value);
+    }
+
+    pub fn get(self) -> u16 {
+        u16::from_be_bytes(self.big_endian_bytes)
+    }
+
+    pub fn set_signed(&mut self, value: i16) {
+        self.set(value as u16)
+    }
+
+    pub fn u16_to_bytes(value: u16) -> [u8; 2] {
+        Self::from_u16(value).to_bytes()
+    }
+
+    pub fn u16_from_bytes(bytes: [u8; 2]) -> u16 {
+        Self::from_bytes(bytes).get()
+    }
 }
 
 impl Stack {
@@ -217,7 +241,7 @@ impl Stack {
         if self.head >= (self.data.len() as u8) - 2 {
             return Err(UxnError::StackOverflow);
         }
-        let value = host_short_to_uxn_bytes(value);
+        let value = Short::u16_to_bytes(value);
         self.data[self.head as usize] = value[0];
         self.data[(self.head + 1) as usize] = value[1];
         self.head += 2;
@@ -227,7 +251,7 @@ impl Stack {
         if self.head < 2 {
             return Err(UxnError::StackUnderflow);
         }
-        let result = uxn_bytes_to_host_short([
+        let result = Short::u16_from_bytes([
             self.data[(self.head - 2) as usize],
             self.data[(self.head - 1) as usize],
         ]);
@@ -313,7 +337,7 @@ impl Uxn {
             return None;
         }
 
-        return Some(uxn_bytes_to_host_short([
+        return Some(Short::u16_from_bytes([
             self.ram[address],
             self.ram[address + 1],
         ]));
@@ -321,7 +345,7 @@ impl Uxn {
 
     pub fn write16(&mut self, address: u16, value: u16) -> Option<()> {
         let address = address as usize;
-        let value = host_short_to_uxn_bytes(value);
+        let value = Short::u16_to_bytes(value);
 
         if address + 1 >= self.ram.len() {
             return None;
