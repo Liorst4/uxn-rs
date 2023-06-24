@@ -38,12 +38,110 @@ impl Default for ConsoleType {
 #[repr(packed(1))]
 struct System {
     halt: uxn::Short,
-    _pad: [u8; 6], // TODO: expansion, friend and metadata
+    expansion: uxn::Short,
+    _pad: [u8; 4], // TODO: friend and metadata
     red: uxn::Short,
     green: uxn::Short,
     blue: uxn::Short,
     debug: u8,
     state: u8,
+}
+
+enum ExpansionCommand {
+    Copy {
+        /// Byte count
+        length: u16,
+
+        /// Source page number
+        src_page: u16,
+
+        /// Offset in the source page
+        src_addr: u16,
+
+        /// Destination page number
+        dst_page: u16,
+
+        /// Offset in the destination page number
+        dst_addr: u16,
+    },
+}
+
+impl ExpansionCommand {
+    fn read_from_uxn(vm: &uxn::Uxn, address: u16) -> Option<ExpansionCommand> {
+        let id = vm.read8(address)?;
+        if id == 1 {
+            return Some(ExpansionCommand::Copy {
+                length: vm.read16(address + 1)?,
+                src_page: vm.read16(address + 3)?,
+                src_addr: vm.read16(address + 5)?,
+                dst_page: vm.read16(address + 7)?,
+                dst_addr: vm.read16(address + 9)?,
+            });
+        }
+        return None;
+    }
+    /// The amount of pages in virtual memory
+    const RAM_PAGES: usize = 0x10;
+
+    fn page_number_to_virtual_address(page_number: u8) -> u32 {
+        (page_number as u32 % Self::RAM_PAGES as u32) * 0x10000
+    }
+
+    fn read8_from_virtual_address(vm: &uxn::Uxn, host: &Varvara, virtual_address: u32) -> u8 {
+        if virtual_address <= u16::MAX as u32 {
+            vm.read8(virtual_address as u16).unwrap()
+        } else {
+            *host
+                .rom_expansion
+                .get(virtual_address as usize - u16::MAX as usize)
+                .unwrap()
+        }
+    }
+
+    fn write8_to_virtual_address(
+        vm: &mut uxn::Uxn,
+        host: &mut Varvara,
+        virtual_address: u32,
+        value: u8,
+    ) {
+        if virtual_address <= u16::MAX as u32 {
+            vm.write8(virtual_address as u16, value).unwrap();
+        } else {
+            *host
+                .rom_expansion
+                .get_mut(virtual_address as usize - u16::MAX as usize)
+                .unwrap() = value;
+        }
+    }
+
+    fn perform(vm: &mut uxn::Uxn, host: &mut Varvara, address: u16) {
+        match Self::read_from_uxn(vm, address) {
+            Some(ExpansionCommand::Copy {
+                length,
+                src_page,
+                src_addr,
+                dst_page,
+                dst_addr,
+            }) => {
+                let source_virtual_address =
+                    Self::page_number_to_virtual_address(src_page as u8) + src_addr as u32;
+                let destination_virtual_address =
+                    Self::page_number_to_virtual_address(dst_page as u8) + dst_addr as u32;
+
+                for i in 0..length as u32 {
+                    let byte =
+                        Self::read8_from_virtual_address(vm, host, source_virtual_address + i);
+                    Self::write8_to_virtual_address(
+                        vm,
+                        host,
+                        destination_virtual_address + i,
+                        byte,
+                    );
+                }
+            }
+            _ => {}
+        }
+    }
 }
 
 #[derive(Default)]
@@ -901,6 +999,9 @@ struct Varvara {
     io_memory: DeviceIOMemory,
     open_files: [OpenedPath; 2],
     frame: screen::Frame,
+
+    /// Parts of the ROM that don't fit inside the address space
+    rom_expansion: Vec<u8>,
 }
 
 macro_rules! offset_of_device_field {
@@ -1162,6 +1263,10 @@ impl uxn::Host for Varvara {
             self.io_memory.screen.draw_sprite(cpu, &mut self.frame);
         }
 
+        if targeted_device_field!(target, short_mode, system, expansion) {
+            ExpansionCommand::perform(cpu, self, self.io_memory.system.expansion.get());
+        }
+
         Some(())
     }
 }
@@ -1400,6 +1505,18 @@ fn inject_mouse_scroll_event(vm: &mut uxn::Uxn, host: &mut Varvara, x: i16, y: i
     host.io_memory.mouse.scrolly.set_signed(0);
 }
 
+fn boot(mut rom: Vec<u8>) -> (uxn::Uxn, Varvara) {
+    let mut host = Varvara::default();
+
+    if rom.len() < uxn::MAX_ROM_SIZE {
+        return (uxn::Uxn::boot(&rom), host);
+    }
+
+    let vm = uxn::Uxn::boot(&rom[0..uxn::MAX_ROM_SIZE]);
+    host.rom_expansion = rom.split_off(u16::MAX as usize);
+    return (vm, host);
+}
+
 fn main() {
     let mut args = std::env::args();
     let mut rom = vec![];
@@ -1430,8 +1547,7 @@ fn main() {
     let mut render_destination = sdl2::rect::Rect::new(0, 0, 0, 0);
     sdl_context.mouse().show_cursor(false);
 
-    let mut vm = uxn::Uxn::boot(&rom);
-    let mut host = Varvara::default();
+    let (mut vm, mut host) = boot(rom);
 
     host.deo(
         &mut vm,

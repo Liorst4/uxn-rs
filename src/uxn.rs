@@ -38,6 +38,7 @@ pub const PAGE_PROGRAM: usize = 0x0100;
 const STACK_BYTE_COUNT: usize = 255;
 const RAM_BYTE_COUNT: usize = 64 * 1024;
 pub const IO_BYTE_COUNT: usize = 256;
+pub const MAX_ROM_SIZE: usize = RAM_BYTE_COUNT - PAGE_PROGRAM;
 
 // TODO: Use numbered enum (without repeating the numbers in `From<u8>::from`
 /// Instruction without different modes
@@ -765,6 +766,7 @@ impl Uxn {
     }
 
     pub fn boot(rom: &[u8]) -> Uxn {
+        assert!(rom.len() <= MAX_ROM_SIZE);
         let mut ram = [0; RAM_BYTE_COUNT];
         ram[PAGE_PROGRAM..PAGE_PROGRAM + rom.len()].copy_from_slice(rom);
         Uxn {
