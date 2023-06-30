@@ -39,7 +39,8 @@ impl Default for ConsoleType {
 struct System {
     halt: uxn::Short,
     expansion: uxn::Short,
-    _pad: [u8; 4], // TODO: friend and metadata
+    friend: uxn::Short,
+    _pad: [u8; 2], // TODO: metadata
     red: uxn::Short,
     green: uxn::Short,
     blue: uxn::Short,
@@ -1265,6 +1266,18 @@ impl uxn::Host for Varvara {
 
         if targeted_device_field!(target, short_mode, system, expansion) {
             ExpansionCommand::perform(cpu, self, self.io_memory.system.expansion.get());
+        }
+
+        if targeted_device_field!(target, short_mode, system, friend) {
+            let entry_point = self.io_memory.system.friend.get();
+            if entry_point != 0 {
+                // TODO: Don't copy ram between instances
+                let mut friend = uxn::Uxn::boot(cpu.slice(0, u16::MAX).unwrap());
+                eval_with_fault_handling(&mut friend, self, entry_point);
+                cpu.slice_mut(0, u16::MAX)
+                    .unwrap()
+                    .copy_from_slice(friend.slice(0, u16::MAX).unwrap());
+            }
         }
 
         Some(())
