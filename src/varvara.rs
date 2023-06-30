@@ -40,7 +40,7 @@ struct System {
     halt: uxn::Short,
     expansion: uxn::Short,
     friend: uxn::Short,
-    _pad: [u8; 2], // TODO: metadata
+    metadata: uxn::Short,
     red: uxn::Short,
     green: uxn::Short,
     blue: uxn::Short,
@@ -996,6 +996,46 @@ impl Default for OpenedPath {
 }
 
 #[derive(Default)]
+struct ProgramMetadata {
+    _varvara_version: u8,
+    text: Vec<String>,
+    // TODO: Extended (https://wiki.xxiivv.com/site/metadata.html)
+}
+
+impl ProgramMetadata {
+    fn read_from_uxn(vm: &uxn::Uxn, address: u16) -> Option<ProgramMetadata> {
+        let mut text = vec![];
+
+        let varvara_version = vm.read8(address)?;
+
+        let mut offset = 1;
+        while offset < 256 {
+            let b = vm.read8(address + offset)?;
+            if b == 0 {
+                break;
+            }
+
+            if text.is_empty() {
+                text.push(String::new());
+            }
+
+            if b == 0x0a {
+                text.push(String::new());
+            } else {
+                text.last_mut().unwrap().push(b as char);
+            }
+
+            offset += 1;
+        }
+
+        Some(ProgramMetadata {
+            _varvara_version: varvara_version,
+            text,
+        })
+    }
+}
+
+#[derive(Default)]
 struct Varvara {
     io_memory: DeviceIOMemory,
     open_files: [OpenedPath; 2],
@@ -1003,6 +1043,9 @@ struct Varvara {
 
     /// Parts of the ROM that don't fit inside the address space
     rom_expansion: Vec<u8>,
+
+    /// Contains parsed metadata if the program wrote to .System/metadata during the previous cycle
+    metadata_update: Option<ProgramMetadata>,
 }
 
 macro_rules! offset_of_device_field {
@@ -1280,6 +1323,11 @@ impl uxn::Host for Varvara {
             }
         }
 
+        if targeted_device_field!(target, short_mode, system, metadata) {
+            self.metadata_update =
+                ProgramMetadata::read_from_uxn(cpu, self.io_memory.system.metadata.get());
+        }
+
         Some(())
     }
 }
@@ -1345,7 +1393,20 @@ fn redraw<'a>(
     uxn_screen: &'a mut screen::Frame,
     render_destination: &mut sdl2::rect::Rect,
     renderer: &mut sdl2::render::WindowCanvas,
+    metadata: &mut Option<ProgramMetadata>,
 ) {
+    if metadata.is_some() {
+        let metadata_ref: &ProgramMetadata = metadata.as_ref().unwrap();
+        if metadata_ref.text.len() != 0 {
+            renderer
+                .window_mut()
+                .set_title(&metadata_ref.text[0])
+                .unwrap();
+        }
+
+        *metadata = None;
+    }
+
     if render_destination.w as usize != uxn_screen.width
         || render_destination.h as usize != uxn_screen.height
     {
@@ -1580,7 +1641,12 @@ fn main() {
 
     // Run initialization
     eval_with_fault_handling(&mut vm, &mut host, uxn::PAGE_PROGRAM as u16);
-    redraw(&mut host.frame, &mut render_destination, &mut renderer);
+    redraw(
+        &mut host.frame,
+        &mut render_destination,
+        &mut renderer,
+        &mut host.metadata_update,
+    );
 
     // Process arguments
     let args_len = args.len();
@@ -1598,7 +1664,12 @@ fn main() {
                 ConsoleType::ArgumentSeparator
             },
         );
-        redraw(&mut host.frame, &mut render_destination, &mut renderer);
+        redraw(
+            &mut host.frame,
+            &mut render_destination,
+            &mut renderer,
+            &mut host.metadata_update,
+        );
     }
 
     let (stdin_tx, stdin_rx) = std::sync::mpsc::channel();
@@ -1638,7 +1709,12 @@ fn main() {
             eval_with_fault_handling(&mut vm, &mut host, screen_vector);
         }
 
-        redraw(&mut host.frame, &mut render_destination, &mut renderer);
+        redraw(
+            &mut host.frame,
+            &mut render_destination,
+            &mut renderer,
+            &mut host.metadata_update,
+        );
 
         for event in event_pump.poll_iter() {
             match event {
