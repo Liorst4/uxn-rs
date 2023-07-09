@@ -157,595 +157,585 @@ struct Console {
     __pad: [u8; 6],
 }
 
-mod screen {
-    use super::*;
+enum Sprite<'a> {
+    /// 1bit sprite
+    /// https://wiki.xxiivv.com/site/icn_format.html
+    ICN(&'a [u8; 8]),
 
-    enum Sprite<'a> {
-        /// 1bit sprite
-        /// https://wiki.xxiivv.com/site/icn_format.html
-        ICN(&'a [u8; 8]),
+    /// 2bit sprite
+    /// https://wiki.xxiivv.com/site/chr_format.html
+    CHR(&'a [u8; 16]),
+}
 
-        /// 2bit sprite
-        /// https://wiki.xxiivv.com/site/chr_format.html
-        CHR(&'a [u8; 16]),
+impl<'a> Sprite<'a> {
+    const WIDTH: u8 = 8;
+    const HEIGHT: u8 = 8;
+
+    fn from_bytes(bytes: &'a [u8]) -> Option<Sprite<'a>> {
+        if bytes.len() == 8 {
+            let sprite_ref = unsafe { std::mem::transmute(bytes.as_ptr()) };
+            Some(Sprite::ICN(sprite_ref))
+        } else if bytes.len() == 16 {
+            let sprite_ref = unsafe { std::mem::transmute(bytes.as_ptr()) };
+            Some(Sprite::CHR(sprite_ref))
+        } else {
+            None
+        }
     }
 
-    impl<'a> Sprite<'a> {
-        const WIDTH: u8 = 8;
-        const HEIGHT: u8 = 8;
-
-        fn from_bytes(bytes: &'a [u8]) -> Option<Sprite<'a>> {
-            if bytes.len() == 8 {
-                let sprite_ref = unsafe { std::mem::transmute(bytes.as_ptr()) };
-                Some(Sprite::ICN(sprite_ref))
-            } else if bytes.len() == 16 {
-                let sprite_ref = unsafe { std::mem::transmute(bytes.as_ptr()) };
-                Some(Sprite::CHR(sprite_ref))
-            } else {
-                None
+    fn in_uxn(uxn: &'a uxn::Uxn, address: u16, mode: SpriteMode) -> Option<Sprite<'a>> {
+        match mode {
+            SpriteMode::OneBit => {
+                let slice = uxn.slice(address, 8)?;
+                Self::from_bytes(slice)
             }
-        }
-
-        fn in_uxn(uxn: &'a uxn::Uxn, address: u16, mode: SpriteMode) -> Option<Sprite<'a>> {
-            match mode {
-                SpriteMode::OneBit => {
-                    let slice = uxn.slice(address, 8)?;
-                    Self::from_bytes(slice)
-                }
-                SpriteMode::TwoBit => {
-                    let slice = uxn.slice(address, 16)?;
-                    Self::from_bytes(slice)
-                }
-            }
-        }
-
-        fn byte_count(&self) -> usize {
-            match self {
-                Sprite::ICN(sprite) => std::mem::size_of_val(sprite),
-                Sprite::CHR(sprite) => std::mem::size_of_val(sprite),
-            }
-        }
-
-        fn pixel(&self, y: u8, x: u8) -> u8 {
-            assert!(y < Self::HEIGHT && x < Self::WIDTH);
-            match self {
-                Sprite::ICN(sprite) => (sprite[y as usize] >> (7 - x)) & 0x1,
-                Sprite::CHR(sprite) => {
-                    let ch1 = (sprite[y as usize] >> (7 - x)) & 0x1;
-                    let ch2 = ((sprite[(y + 8) as usize] >> (7 - x)) & 0x1) << 1;
-                    ch1 + ch2
-                }
+            SpriteMode::TwoBit => {
+                let slice = uxn.slice(address, 16)?;
+                Self::from_bytes(slice)
             }
         }
     }
 
-    #[test]
-    fn test_sanity_chr() {
-        // From https://wiki.xxiivv.com/site/chr_format.html
-        const TILE: [u8; 16] = [
-            0xf8, 0xf8, 0xf8, 0xf8, 0xf8, 0x00, 0x00, 0x00, 0x00, 0x00, 0x3e, 0x3e, 0x3e, 0x3e,
-            0x3e, 0x00,
+    fn byte_count(&self) -> usize {
+        match self {
+            Sprite::ICN(sprite) => std::mem::size_of_val(sprite),
+            Sprite::CHR(sprite) => std::mem::size_of_val(sprite),
+        }
+    }
+
+    fn pixel(&self, y: u8, x: u8) -> u8 {
+        assert!(y < Self::HEIGHT && x < Self::WIDTH);
+        match self {
+            Sprite::ICN(sprite) => (sprite[y as usize] >> (7 - x)) & 0x1,
+            Sprite::CHR(sprite) => {
+                let ch1 = (sprite[y as usize] >> (7 - x)) & 0x1;
+                let ch2 = ((sprite[(y + 8) as usize] >> (7 - x)) & 0x1) << 1;
+                ch1 + ch2
+            }
+        }
+    }
+}
+
+#[test]
+fn test_sanity_chr() {
+    // From https://wiki.xxiivv.com/site/chr_format.html
+    const TILE: [u8; 16] = [
+        0xf8, 0xf8, 0xf8, 0xf8, 0xf8, 0x00, 0x00, 0x00, 0x00, 0x00, 0x3e, 0x3e, 0x3e, 0x3e, 0x3e,
+        0x00,
+    ];
+
+    const EXPECTED_PIXELS: [[u8; 8]; 8] = [
+        [1, 1, 1, 1, 1, 0, 0, 0],
+        [1, 1, 1, 1, 1, 0, 0, 0],
+        [1, 1, 3, 3, 3, 2, 2, 0],
+        [1, 1, 3, 3, 3, 2, 2, 0],
+        [1, 1, 3, 3, 3, 2, 2, 0],
+        [0, 0, 2, 2, 2, 2, 2, 0],
+        [0, 0, 2, 2, 2, 2, 2, 0],
+        [0, 0, 0, 0, 0, 0, 0, 0],
+    ];
+
+    let sprite = Sprite::from_bytes(&TILE).unwrap();
+    let mut pixels: [[u8; 8]; 8] = Default::default();
+
+    for y in 0..Sprite::HEIGHT {
+        for x in 0..Sprite::WIDTH {
+            pixels[y as usize][x as usize] = sprite.pixel(y, x);
+        }
+    }
+
+    assert_eq!(EXPECTED_PIXELS, pixels);
+}
+
+#[test]
+fn test_sanity_icn() {
+    // From https://wiki.xxiivv.com/site/icn_format.html
+    const TILE: [u8; 8] = [0x00, 0x3c, 0x42, 0x7e, 0x40, 0x42, 0x3c, 0x00];
+    const EXPECTED_PIXELS: [[u8; 8]; 8] = [
+        [0, 0, 0, 0, 0, 0, 0, 0],
+        [0, 0, 1, 1, 1, 1, 0, 0],
+        [0, 1, 0, 0, 0, 0, 1, 0],
+        [0, 1, 1, 1, 1, 1, 1, 0],
+        [0, 1, 0, 0, 0, 0, 0, 0],
+        [0, 1, 0, 0, 0, 0, 1, 0],
+        [0, 0, 1, 1, 1, 1, 0, 0],
+        [0, 0, 0, 0, 0, 0, 0, 0],
+    ];
+    let sprite = Sprite::from_bytes(&TILE).unwrap();
+    let mut pixels: [[u8; 8]; 8] = Default::default();
+    for y in 0..Sprite::HEIGHT {
+        for x in 0..Sprite::WIDTH {
+            pixels[y as usize][x as usize] = sprite.pixel(y, x);
+        }
+    }
+
+    assert_eq!(EXPECTED_PIXELS, pixels);
+}
+
+#[derive(Copy, Clone)]
+#[repr(u8)]
+enum Layer {
+    Background = 0,
+    Forground = 1,
+}
+
+fn rgb_to_palette(red: u16, green: u16, blue: u16) -> [u32; 4] {
+    fn short_to_be_nibbles(short: u16) -> [u8; 4] {
+        let bytes = u16::to_be_bytes(short);
+
+        fn high_nibble(byte: u8) -> u8 {
+            (byte & 0xf0) >> 4
+        }
+
+        fn low_nibble(byte: u8) -> u8 {
+            byte & 0x0f
+        }
+
+        return [
+            high_nibble(bytes[0]),
+            low_nibble(bytes[0]),
+            high_nibble(bytes[1]),
+            low_nibble(bytes[1]),
         ];
-
-        const EXPECTED_PIXELS: [[u8; 8]; 8] = [
-            [1, 1, 1, 1, 1, 0, 0, 0],
-            [1, 1, 1, 1, 1, 0, 0, 0],
-            [1, 1, 3, 3, 3, 2, 2, 0],
-            [1, 1, 3, 3, 3, 2, 2, 0],
-            [1, 1, 3, 3, 3, 2, 2, 0],
-            [0, 0, 2, 2, 2, 2, 2, 0],
-            [0, 0, 2, 2, 2, 2, 2, 0],
-            [0, 0, 0, 0, 0, 0, 0, 0],
-        ];
-
-        let sprite = Sprite::from_bytes(&TILE).unwrap();
-        let mut pixels: [[u8; 8]; 8] = Default::default();
-
-        for y in 0..Sprite::HEIGHT {
-            for x in 0..Sprite::WIDTH {
-                pixels[y as usize][x as usize] = sprite.pixel(y, x);
-            }
-        }
-
-        assert_eq!(EXPECTED_PIXELS, pixels);
     }
 
-    #[test]
-    fn test_sanity_icn() {
-        // From https://wiki.xxiivv.com/site/icn_format.html
-        const TILE: [u8; 8] = [0x00, 0x3c, 0x42, 0x7e, 0x40, 0x42, 0x3c, 0x00];
-        const EXPECTED_PIXELS: [[u8; 8]; 8] = [
-            [0, 0, 0, 0, 0, 0, 0, 0],
-            [0, 0, 1, 1, 1, 1, 0, 0],
-            [0, 1, 0, 0, 0, 0, 1, 0],
-            [0, 1, 1, 1, 1, 1, 1, 0],
-            [0, 1, 0, 0, 0, 0, 0, 0],
-            [0, 1, 0, 0, 0, 0, 1, 0],
-            [0, 0, 1, 1, 1, 1, 0, 0],
-            [0, 0, 0, 0, 0, 0, 0, 0],
-        ];
-        let sprite = Sprite::from_bytes(&TILE).unwrap();
-        let mut pixels: [[u8; 8]; 8] = Default::default();
-        for y in 0..Sprite::HEIGHT {
-            for x in 0..Sprite::WIDTH {
-                pixels[y as usize][x as usize] = sprite.pixel(y, x);
-            }
-        }
-
-        assert_eq!(EXPECTED_PIXELS, pixels);
+    /// 0x1 -> 0x11, 0xf -> 0xff
+    fn nibble_to_palindrome_byte(nibble: u8) -> u8 {
+        nibble | (nibble << 4)
     }
 
-    #[derive(Copy, Clone)]
-    #[repr(u8)]
-    enum Layer {
-        Background = 0,
-        Forground = 1,
+    let red = short_to_be_nibbles(red);
+    let green = short_to_be_nibbles(green);
+    let blue = short_to_be_nibbles(blue);
+
+    let mut palette: [u32; 4] = Default::default();
+    for nibble_index in 0..palette.len() {
+        palette[nibble_index] = u32::from_be_bytes(
+            [
+                0xf,
+                red[nibble_index],
+                green[nibble_index],
+                blue[nibble_index],
+            ]
+            .map(nibble_to_palindrome_byte),
+        );
     }
 
-    fn rgb_to_palette(red: u16, green: u16, blue: u16) -> [u32; 4] {
-        fn short_to_be_nibbles(short: u16) -> [u8; 4] {
-            let bytes = u16::to_be_bytes(short);
+    return palette;
+}
 
-            fn high_nibble(byte: u8) -> u8 {
-                (byte & 0xf0) >> 4
-            }
+#[test]
+fn test_rgb_to_palette() {
+    for (expected, (r, g, b)) in [
+        (
+            // From https://wiki.xxiivv.com/site/theme.html
+            [0xff000000, 0xffaa55cc, 0xff66ccaa, 0xffffffff],
+            (0x0a6f, 0x05cf, 0x0caf),
+        ),
+        (
+            // From piano.rom
+            [0xff000000, 0xffffffff, 0xffeecc22, 0xff333333],
+            (0x0fe3, 0x0fc3, 0x0f23),
+        ),
+        (
+            // From screen.rom
+            [0xffffffff, 0xff000000, 0xff77eecc, 0xffff0000],
+            (0xf07f, 0xf0e0, 0xf0c0),
+        ),
+    ] {
+        let result = rgb_to_palette(r, g, b);
+        println!("expected: {:#08x?}", expected);
+        println!(
+            "result: {:#08x?} (r: {:#04x} g: {:#04x} b: {:#04x})",
+            result, r, g, b
+        );
+        assert_eq!(result, expected);
+    }
+}
 
-            fn low_nibble(byte: u8) -> u8 {
-                byte & 0x0f
-            }
+#[derive(Default)]
+pub struct Frame {
+    pub width: usize,
+    pub height: usize,
 
-            return [
-                high_nibble(bytes[0]),
-                low_nibble(bytes[0]),
-                high_nibble(bytes[1]),
-                low_nibble(bytes[1]),
-            ];
-        }
+    // The area that changed during the last render
+    x1: usize,
+    y1: usize,
+    x2: usize,
+    y2: usize,
 
-        /// 0x1 -> 0x11, 0xf -> 0xff
-        fn nibble_to_palindrome_byte(nibble: u8) -> u8 {
-            nibble | (nibble << 4)
-        }
+    /// Four RGB888 pixels representing red, green, blue and alpha
+    palette: [u32; 4],
 
-        let red = short_to_be_nibbles(red);
-        let green = short_to_be_nibbles(green);
-        let blue = short_to_be_nibbles(blue);
+    /// Each item is a `palette` index (2bit)
+    foreground: Vec<u8>,
 
-        let mut palette: [u32; 4] = Default::default();
-        for nibble_index in 0..palette.len() {
-            palette[nibble_index] = u32::from_be_bytes(
-                [
-                    0xf,
-                    red[nibble_index],
-                    green[nibble_index],
-                    blue[nibble_index],
-                ]
-                .map(nibble_to_palindrome_byte),
-            );
-        }
+    /// Each item is a `palette` index (2bit)
+    /// Color0 is treated as transparent
+    background: Vec<u8>,
 
-        return palette;
+    /// RGB888 pixels
+    pub pixels: Vec<u32>,
+}
+
+impl Frame {
+    /// Update the rectangle that contains the pixels that were affected by the last draw.
+    fn set_the_delta_area(&mut self, x1: usize, y1: usize, x2: usize, y2: usize) {
+        self.x1 = std::cmp::min(x1, self.x1);
+        self.y1 = std::cmp::min(y1, self.y1);
+        self.x2 = std::cmp::max(x2, self.x2);
+        self.y2 = std::cmp::max(y2, self.y2);
     }
 
-    #[test]
-    fn test_rgb_to_palette() {
-        for (expected, (r, g, b)) in [
-            (
-                // From https://wiki.xxiivv.com/site/theme.html
-                [0xff000000, 0xffaa55cc, 0xff66ccaa, 0xffffffff],
-                (0x0a6f, 0x05cf, 0x0caf),
-            ),
-            (
-                // From piano.rom
-                [0xff000000, 0xffffffff, 0xffeecc22, 0xff333333],
-                (0x0fe3, 0x0fc3, 0x0f23),
-            ),
-            (
-                // From screen.rom
-                [0xffffffff, 0xff000000, 0xff77eecc, 0xffff0000],
-                (0xf07f, 0xf0e0, 0xf0c0),
-            ),
-        ] {
-            let result = rgb_to_palette(r, g, b);
-            println!("expected: {:#08x?}", expected);
-            println!(
-                "result: {:#08x?} (r: {:#04x} g: {:#04x} b: {:#04x})",
-                result, r, g, b
-            );
-            assert_eq!(result, expected);
+    fn fill(&mut self, layer: Layer, x1: u16, y1: u16, x2: u16, y2: u16, color: u8) {
+        let layer = match layer {
+            Layer::Forground => &mut self.foreground,
+            Layer::Background => &mut self.background,
+        };
+
+        for y in y1..std::cmp::min(y2, self.height as u16) {
+            for x in x1..std::cmp::min(x2, self.width as u16) {
+                layer[x as usize + (y as usize * self.width)] = color;
+            }
         }
     }
 
-    #[derive(Default)]
-    pub struct Frame {
-        pub width: usize,
-        pub height: usize,
+    fn blit(
+        &mut self,
+        layer: Layer,
+        sprite: Sprite,
+        x: u16,
+        y: u16,
+        blending_color: u8,
+        flip_x: bool,
+        flip_y: bool,
+    ) {
+        let opaque = ((blending_color % 5) != 0) || ((!blending_color) != 0);
+        let layer = match layer {
+            Layer::Forground => &mut self.foreground,
+            Layer::Background => &mut self.background,
+        };
 
-        // The area that changed during the last render
-        x1: usize,
-        y1: usize,
-        x2: usize,
-        y2: usize,
-
-        /// Four RGB888 pixels representing red, green, blue and alpha
-        palette: [u32; 4],
-
-        /// Each item is a `palette` index (2bit)
-        foreground: Vec<u8>,
-
-        /// Each item is a `palette` index (2bit)
-        /// Color0 is treated as transparent
-        background: Vec<u8>,
-
-        /// RGB888 pixels
-        pub pixels: Vec<u32>,
-    }
-
-    impl Frame {
-        /// Update the rectangle that contains the pixels that were affected by the last draw.
-        fn set_the_delta_area(&mut self, x1: usize, y1: usize, x2: usize, y2: usize) {
-            self.x1 = std::cmp::min(x1, self.x1);
-            self.y1 = std::cmp::min(y1, self.y1);
-            self.x2 = std::cmp::max(x2, self.x2);
-            self.y2 = std::cmp::max(y2, self.y2);
-        }
-
-        fn fill(&mut self, layer: Layer, x1: u16, y1: u16, x2: u16, y2: u16, color: u8) {
-            let layer = match layer {
-                Layer::Forground => &mut self.foreground,
-                Layer::Background => &mut self.background,
-            };
-
-            for y in y1..std::cmp::min(y2, self.height as u16) {
-                for x in x1..std::cmp::min(x2, self.width as u16) {
-                    layer[x as usize + (y as usize * self.width)] = color;
-                }
-            }
-        }
-
-        fn blit(
-            &mut self,
-            layer: Layer,
-            sprite: Sprite,
-            x: u16,
-            y: u16,
-            blending_color: u8,
-            flip_x: bool,
-            flip_y: bool,
-        ) {
-            let opaque = ((blending_color % 5) != 0) || ((!blending_color) != 0);
-            let layer = match layer {
-                Layer::Forground => &mut self.foreground,
-                Layer::Background => &mut self.background,
-            };
-
-            for row in 0..Sprite::HEIGHT {
-                for column in 0..Sprite::WIDTH {
-                    let target_x = x as usize
-                        + if flip_x {
-                            Sprite::WIDTH - 1 - column
-                        } else {
-                            column
-                        } as usize;
-                    let target_y = y as usize
-                        + if flip_y {
-                            Sprite::HEIGHT - 1 - row
-                        } else {
-                            row
-                        } as usize;
-
-                    let sprite_pixel = sprite.pixel(row, column);
-                    let channel = (sprite_pixel & 1) | ((sprite_pixel >> 7) & 2);
-                    if (target_x < self.width)
-                        && (target_y < self.height)
-                        && (opaque || (channel != 0))
-                    {
-                        /// Copied from https://wiki.xxiivv.com/site/varvara.html#screen
-                        const BLENDING: [[u8; 16]; 4] = [
-                            [0, 0, 0, 0, 1, 0, 1, 1, 2, 2, 0, 2, 3, 3, 3, 0],
-                            [0, 1, 2, 3, 0, 1, 2, 3, 0, 1, 2, 3, 0, 1, 2, 3],
-                            [1, 2, 3, 1, 1, 2, 3, 1, 1, 2, 3, 1, 1, 2, 3, 1],
-                            [2, 3, 1, 2, 2, 3, 1, 2, 2, 3, 1, 2, 2, 3, 1, 2],
-                        ];
-                        layer[target_x + (target_y * self.width)] =
-                            BLENDING[channel as usize][blending_color as usize];
-                    }
-                }
-            }
-        }
-
-        pub fn set_palette(&mut self, red: u16, green: u16, blue: u16) {
-            self.palette = rgb_to_palette(red, green, blue);
-            self.set_the_delta_area(0, 0, self.width, self.height);
-        }
-
-        pub fn resize(&mut self, width: u16, height: u16) {
-            const MIN_WIDTH: u16 = 0x8;
-            const MAX_WIDTH: u16 = 0x400;
-            const MIN_HEIGHT: u16 = MIN_WIDTH;
-            const MAX_HEIGHT: u16 = MAX_WIDTH;
-
-            if width < MIN_WIDTH
-                || height < MIN_HEIGHT
-                || width >= MAX_WIDTH
-                || height >= MAX_HEIGHT
-            {
-                return;
-            }
-
-            self.width = width as usize;
-            self.height = height as usize;
-            let pixel_count = self.width * self.height;
-
-            self.background.resize(pixel_count, 0);
-            self.foreground.resize(pixel_count, 0);
-            self.pixels
-                .resize(pixel_count * std::mem::size_of::<u32>(), 0);
-
-            for layer in [Layer::Forground, Layer::Background] {
-                self.fill(layer, 0, 0, self.width as u16, self.height as u16, 0);
-            }
-        }
-
-        /// Merge background, foreground and palette into a single image (`pixels`)
-        pub fn update_pixels(&mut self) {
-            let w = self.width;
-            let h = self.height;
-            let x1 = self.x1;
-            let y1 = self.y1;
-            let x2 = if self.x2 > w { w } else { self.x2 };
-            let y2 = if self.y2 > h { h } else { self.y2 };
-
-            for y in y1..y2 {
-                for x in x1..x2 {
-                    let i = x + y * w;
-                    let palette_index_for_background = self.background[i];
-                    let palette_index_for_foreground = self.foreground[i];
-                    let palette_index_for_pixels = if palette_index_for_foreground == 0 {
-                        palette_index_for_background
+        for row in 0..Sprite::HEIGHT {
+            for column in 0..Sprite::WIDTH {
+                let target_x = x as usize
+                    + if flip_x {
+                        Sprite::WIDTH - 1 - column
                     } else {
-                        palette_index_for_foreground
-                    };
-                    self.pixels[i] = self.palette[palette_index_for_pixels as usize];
-                }
-            }
+                        column
+                    } as usize;
+                let target_y = y as usize
+                    + if flip_y {
+                        Sprite::HEIGHT - 1 - row
+                    } else {
+                        row
+                    } as usize;
 
-            self.y1 = 0xffff;
-            self.x1 = self.y1;
-            self.y2 = 0;
-            self.x2 = self.y2;
-        }
-    }
-
-    #[repr(u8)]
-    enum PixelMode {
-        Pixel = 0,
-        Fill = 1,
-    }
-
-    #[repr(u8)]
-    enum SpriteMode {
-        OneBit = 0,
-        TwoBit = 1,
-    }
-
-    trait Control {
-        fn get(&self) -> u8;
-
-        fn layer(&self) -> Layer {
-            const LAYER_MASK: u8 = 0b01000000;
-            if self.get() & LAYER_MASK != 0 {
-                Layer::Forground
-            } else {
-                Layer::Background
-            }
-        }
-
-        fn flip_y(&self) -> bool {
-            const FLIP_Y_MASK: u8 = 0b00100000;
-            self.get() & FLIP_Y_MASK != 0
-        }
-
-        fn flip_x(&self) -> bool {
-            const FLIP_X_MASK: u8 = 0b00010000;
-            self.get() & FLIP_X_MASK != 0
-        }
-    }
-
-    #[derive(Default)]
-    #[repr(packed(1))]
-    pub struct PixelFlags {
-        value: u8,
-    }
-
-    impl Control for PixelFlags {
-        fn get(&self) -> u8 {
-            self.value
-        }
-    }
-
-    impl PixelFlags {
-        fn color(&self) -> u8 {
-            const COLOR_MASK: u8 = 0b00000011;
-            self.value & COLOR_MASK
-        }
-
-        fn mode(&self) -> PixelMode {
-            const PIXEL_MODE_MASK: u8 = 0b10000000;
-            if (self.value & PIXEL_MODE_MASK) != 0 {
-                return PixelMode::Fill;
-            }
-            return PixelMode::Pixel;
-        }
-    }
-
-    #[derive(Default)]
-    #[repr(packed(1))]
-    pub struct SpriteFlags {
-        value: u8,
-    }
-
-    impl Control for SpriteFlags {
-        fn get(&self) -> u8 {
-            self.value
-        }
-    }
-
-    impl SpriteFlags {
-        fn blending(&self) -> u8 {
-            const BLENDING_MASK: u8 = 0b00001111;
-            self.value & BLENDING_MASK
-        }
-
-        fn mode(&self) -> SpriteMode {
-            const SPRITE_MODE_MASK: u8 = 0b10000000;
-            if (self.value & SPRITE_MODE_MASK) != 0 {
-                return SpriteMode::TwoBit;
-            }
-            return SpriteMode::OneBit;
-        }
-    }
-
-    #[derive(Default)]
-    #[repr(packed(1))]
-    struct AutoFlags {
-        value: u8,
-    }
-
-    impl AutoFlags {
-        fn length(&self) -> u8 {
-            const LENGTH_SHIFT: u8 = 4;
-            self.value >> LENGTH_SHIFT
-        }
-
-        fn addr(&self) -> bool {
-            const ADDR_MASK: u8 = 0b00000100;
-            (self.value & ADDR_MASK) != 0
-        }
-
-        fn y(&self) -> bool {
-            const Y_MASK: u8 = 0b00000010;
-            (self.value & Y_MASK) != 0
-        }
-
-        fn x(&self) -> bool {
-            const X_MASK: u8 = 0b00000001;
-            (self.value & X_MASK) != 0
-        }
-    }
-
-    #[derive(Default)]
-    #[repr(packed(1))]
-    pub struct IODevice {
-        pub vector: uxn::Short,
-        pub width: uxn::Short,
-        pub height: uxn::Short,
-        auto: AutoFlags,
-        _pad: u8,
-        x: uxn::Short,
-        y: uxn::Short,
-        addr: uxn::Short,
-        pub pixel: PixelFlags,
-        pub sprite: SpriteFlags,
-    }
-
-    impl IODevice {
-        pub fn draw_pixel(&mut self, frame: &mut Frame) {
-            let ctrl = &self.pixel;
-            let color = ctrl.color();
-            let mut x = self.x.get();
-            let mut y = self.y.get();
-            let layer = ctrl.layer();
-            match ctrl.mode() {
-                PixelMode::Fill => {
-                    let mut x2 = frame.width as u16;
-                    let mut y2 = frame.height as u16;
-
-                    if ctrl.flip_x() {
-                        x2 = x;
-                        x = 0;
-                    }
-
-                    if ctrl.flip_y() {
-                        y2 = y;
-                        y = 0;
-                    }
-
-                    frame.fill(layer, x, y, x2, y2, color);
-                    frame.set_the_delta_area(x as usize, y as usize, x2 as usize, y2 as usize);
-                }
-                PixelMode::Pixel => {
-                    let width = frame.width as u16;
-                    let height = frame.height as u16;
-                    let layer = match layer {
-                        Layer::Background => &mut frame.background,
-                        Layer::Forground => &mut frame.foreground,
-                    };
-
-                    if x < width && y < height {
-                        layer[x as usize + y as usize * width as usize] = color;
-                    }
-
-                    // Apply auto flags
-                    if self.auto.x() {
-                        self.x.set(x.wrapping_add(1));
-                    }
-
-                    if self.auto.y() {
-                        self.y.set(y.wrapping_add(1));
-                    }
+                let sprite_pixel = sprite.pixel(row, column);
+                let channel = (sprite_pixel & 1) | ((sprite_pixel >> 7) & 2);
+                if (target_x < self.width) && (target_y < self.height) && (opaque || (channel != 0))
+                {
+                    /// Copied from https://wiki.xxiivv.com/site/varvara.html#screen
+                    const BLENDING: [[u8; 16]; 4] = [
+                        [0, 0, 0, 0, 1, 0, 1, 1, 2, 2, 0, 2, 3, 3, 3, 0],
+                        [0, 1, 2, 3, 0, 1, 2, 3, 0, 1, 2, 3, 0, 1, 2, 3],
+                        [1, 2, 3, 1, 1, 2, 3, 1, 1, 2, 3, 1, 1, 2, 3, 1],
+                        [2, 3, 1, 2, 2, 3, 1, 2, 2, 3, 1, 2, 2, 3, 1, 2],
+                    ];
+                    layer[target_x + (target_y * self.width)] =
+                        BLENDING[channel as usize][blending_color as usize];
                 }
             }
         }
+    }
 
-        pub fn draw_sprite(&mut self, uxn: &mut uxn::Uxn, frame: &mut Frame) {
-            let ctrl = &self.sprite;
-            let move_ = &self.auto;
-            let length = move_.length();
-            let x = self.x.get();
-            let y = self.y.get();
-            let mut addr = self.addr.get();
-            let dx = if move_.x() { Sprite::WIDTH as u16 } else { 0 };
-            let dy = if move_.y() { Sprite::HEIGHT as u16 } else { 0 };
-            let layer = ctrl.layer();
+    pub fn set_palette(&mut self, red: u16, green: u16, blue: u16) {
+        self.palette = rgb_to_palette(red, green, blue);
+        self.set_the_delta_area(0, 0, self.width, self.height);
+    }
 
-            for i in 0..(length + 1) {
-                let sprite = Sprite::in_uxn(uxn, addr, ctrl.mode()).unwrap();
-                let byte_count = sprite.byte_count();
+    pub fn resize(&mut self, width: u16, height: u16) {
+        const MIN_WIDTH: u16 = 0x8;
+        const MAX_WIDTH: u16 = 0x400;
+        const MIN_HEIGHT: u16 = MIN_WIDTH;
+        const MAX_HEIGHT: u16 = MAX_WIDTH;
 
-                frame.blit(
-                    layer,
-                    sprite,
-                    x + (dy * i as u16),
-                    y + (dx * i as u16),
-                    ctrl.blending(),
-                    ctrl.flip_x(),
-                    ctrl.flip_y(),
-                );
+        if width < MIN_WIDTH || height < MIN_HEIGHT || width >= MAX_WIDTH || height >= MAX_HEIGHT {
+            return;
+        }
 
-                if move_.addr() {
-                    addr += byte_count as u16;
+        self.width = width as usize;
+        self.height = height as usize;
+        let pixel_count = self.width * self.height;
+
+        self.background.resize(pixel_count, 0);
+        self.foreground.resize(pixel_count, 0);
+        self.pixels
+            .resize(pixel_count * std::mem::size_of::<u32>(), 0);
+
+        for layer in [Layer::Forground, Layer::Background] {
+            self.fill(layer, 0, 0, self.width as u16, self.height as u16, 0);
+        }
+    }
+
+    /// Merge background, foreground and palette into a single image (`pixels`)
+    pub fn update_pixels(&mut self) {
+        let w = self.width;
+        let h = self.height;
+        let x1 = self.x1;
+        let y1 = self.y1;
+        let x2 = if self.x2 > w { w } else { self.x2 };
+        let y2 = if self.y2 > h { h } else { self.y2 };
+
+        for y in y1..y2 {
+            for x in x1..x2 {
+                let i = x + y * w;
+                let palette_index_for_background = self.background[i];
+                let palette_index_for_foreground = self.foreground[i];
+                let palette_index_for_pixels = if palette_index_for_foreground == 0 {
+                    palette_index_for_background
+                } else {
+                    palette_index_for_foreground
+                };
+                self.pixels[i] = self.palette[palette_index_for_pixels as usize];
+            }
+        }
+
+        self.y1 = 0xffff;
+        self.x1 = self.y1;
+        self.y2 = 0;
+        self.x2 = self.y2;
+    }
+}
+
+#[repr(u8)]
+enum PixelMode {
+    Pixel = 0,
+    Fill = 1,
+}
+
+#[repr(u8)]
+enum SpriteMode {
+    OneBit = 0,
+    TwoBit = 1,
+}
+
+trait Control {
+    fn get(&self) -> u8;
+
+    fn layer(&self) -> Layer {
+        const LAYER_MASK: u8 = 0b01000000;
+        if self.get() & LAYER_MASK != 0 {
+            Layer::Forground
+        } else {
+            Layer::Background
+        }
+    }
+
+    fn flip_y(&self) -> bool {
+        const FLIP_Y_MASK: u8 = 0b00100000;
+        self.get() & FLIP_Y_MASK != 0
+    }
+
+    fn flip_x(&self) -> bool {
+        const FLIP_X_MASK: u8 = 0b00010000;
+        self.get() & FLIP_X_MASK != 0
+    }
+}
+
+#[derive(Default)]
+#[repr(packed(1))]
+pub struct PixelFlags {
+    value: u8,
+}
+
+impl Control for PixelFlags {
+    fn get(&self) -> u8 {
+        self.value
+    }
+}
+
+impl PixelFlags {
+    fn color(&self) -> u8 {
+        const COLOR_MASK: u8 = 0b00000011;
+        self.value & COLOR_MASK
+    }
+
+    fn mode(&self) -> PixelMode {
+        const PIXEL_MODE_MASK: u8 = 0b10000000;
+        if (self.value & PIXEL_MODE_MASK) != 0 {
+            return PixelMode::Fill;
+        }
+        return PixelMode::Pixel;
+    }
+}
+
+#[derive(Default)]
+#[repr(packed(1))]
+pub struct SpriteFlags {
+    value: u8,
+}
+
+impl Control for SpriteFlags {
+    fn get(&self) -> u8 {
+        self.value
+    }
+}
+
+impl SpriteFlags {
+    fn blending(&self) -> u8 {
+        const BLENDING_MASK: u8 = 0b00001111;
+        self.value & BLENDING_MASK
+    }
+
+    fn mode(&self) -> SpriteMode {
+        const SPRITE_MODE_MASK: u8 = 0b10000000;
+        if (self.value & SPRITE_MODE_MASK) != 0 {
+            return SpriteMode::TwoBit;
+        }
+        return SpriteMode::OneBit;
+    }
+}
+
+#[derive(Default)]
+#[repr(packed(1))]
+struct AutoFlags {
+    value: u8,
+}
+
+impl AutoFlags {
+    fn length(&self) -> u8 {
+        const LENGTH_SHIFT: u8 = 4;
+        self.value >> LENGTH_SHIFT
+    }
+
+    fn addr(&self) -> bool {
+        const ADDR_MASK: u8 = 0b00000100;
+        (self.value & ADDR_MASK) != 0
+    }
+
+    fn y(&self) -> bool {
+        const Y_MASK: u8 = 0b00000010;
+        (self.value & Y_MASK) != 0
+    }
+
+    fn x(&self) -> bool {
+        const X_MASK: u8 = 0b00000001;
+        (self.value & X_MASK) != 0
+    }
+}
+
+#[derive(Default)]
+#[repr(packed(1))]
+pub struct Screen {
+    pub vector: uxn::Short,
+    pub width: uxn::Short,
+    pub height: uxn::Short,
+    auto: AutoFlags,
+    _pad: u8,
+    x: uxn::Short,
+    y: uxn::Short,
+    addr: uxn::Short,
+    pub pixel: PixelFlags,
+    pub sprite: SpriteFlags,
+}
+
+impl Screen {
+    pub fn draw_pixel(&mut self, frame: &mut Frame) {
+        let ctrl = &self.pixel;
+        let color = ctrl.color();
+        let mut x = self.x.get();
+        let mut y = self.y.get();
+        let layer = ctrl.layer();
+        match ctrl.mode() {
+            PixelMode::Fill => {
+                let mut x2 = frame.width as u16;
+                let mut y2 = frame.height as u16;
+
+                if ctrl.flip_x() {
+                    x2 = x;
+                    x = 0;
+                }
+
+                if ctrl.flip_y() {
+                    y2 = y;
+                    y = 0;
+                }
+
+                frame.fill(layer, x, y, x2, y2, color);
+                frame.set_the_delta_area(x as usize, y as usize, x2 as usize, y2 as usize);
+            }
+            PixelMode::Pixel => {
+                let width = frame.width as u16;
+                let height = frame.height as u16;
+                let layer = match layer {
+                    Layer::Background => &mut frame.background,
+                    Layer::Forground => &mut frame.foreground,
+                };
+
+                if x < width && y < height {
+                    layer[x as usize + y as usize * width as usize] = color;
+                }
+
+                // Apply auto flags
+                if self.auto.x() {
+                    self.x.set(x.wrapping_add(1));
+                }
+
+                if self.auto.y() {
+                    self.y.set(y.wrapping_add(1));
                 }
             }
+        }
+    }
 
-            frame.set_the_delta_area(
-                x as usize,
-                y as usize,
-                x as usize + dy as usize * length as usize + Sprite::HEIGHT as usize,
-                y as usize + dx as usize * length as usize + Sprite::WIDTH as usize,
+    pub fn draw_sprite(&mut self, uxn: &mut uxn::Uxn, frame: &mut Frame) {
+        let ctrl = &self.sprite;
+        let move_ = &self.auto;
+        let length = move_.length();
+        let x = self.x.get();
+        let y = self.y.get();
+        let mut addr = self.addr.get();
+        let dx = if move_.x() { Sprite::WIDTH as u16 } else { 0 };
+        let dy = if move_.y() { Sprite::HEIGHT as u16 } else { 0 };
+        let layer = ctrl.layer();
+
+        for i in 0..(length + 1) {
+            let sprite = Sprite::in_uxn(uxn, addr, ctrl.mode()).unwrap();
+            let byte_count = sprite.byte_count();
+
+            frame.blit(
+                layer,
+                sprite,
+                x + (dy * i as u16),
+                y + (dx * i as u16),
+                ctrl.blending(),
+                ctrl.flip_x(),
+                ctrl.flip_y(),
             );
-
-            if move_.x() {
-                self.x.set(x.wrapping_add(dx as u16));
-            }
-
-            if move_.y() {
-                self.y.set(y.wrapping_add(dy as u16));
-            }
 
             if move_.addr() {
-                self.addr.set(addr);
+                addr += byte_count as u16;
             }
+        }
+
+        frame.set_the_delta_area(
+            x as usize,
+            y as usize,
+            x as usize + dy as usize * length as usize + Sprite::HEIGHT as usize,
+            y as usize + dx as usize * length as usize + Sprite::WIDTH as usize,
+        );
+
+        if move_.x() {
+            self.x.set(x.wrapping_add(dx as u16));
+        }
+
+        if move_.y() {
+            self.y.set(y.wrapping_add(dy as u16));
+        }
+
+        if move_.addr() {
+            self.addr.set(addr);
         }
     }
 }
@@ -986,7 +976,7 @@ impl DateTime {
 struct DeviceIOMemory {
     system: System,
     console: Console,
-    screen: screen::IODevice,
+    screen: Screen,
     audio: [Audio; 4],
     _pad: [u8; 0x10],
     controller: Controller,
@@ -1122,7 +1112,7 @@ impl ProgramMetadata {
 struct Varvara {
     io_memory: DeviceIOMemory,
     open_files: [OpenedPath; 2],
-    frame: screen::Frame,
+    frame: Frame,
 
     /// Parts of the ROM that don't fit inside the address space
     rom_expansion: Vec<u8>,
@@ -1489,7 +1479,7 @@ const PAD: u32 = 2;
 const ZOOM: u32 = 2; // TODO: Parse from args
 
 fn redraw<'a>(
-    uxn_screen: &'a mut screen::Frame,
+    uxn_screen: &'a mut Frame,
     render_destination: &mut sdl2::rect::Rect,
     renderer: &mut sdl2::render::WindowCanvas,
     metadata: &mut Option<ProgramMetadata>,
