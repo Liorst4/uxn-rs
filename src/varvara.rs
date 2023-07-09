@@ -752,6 +752,89 @@ mod screen {
 
 #[derive(Default)]
 #[repr(packed(1))]
+struct ADSR {
+    data: uxn::Short,
+}
+
+impl ADSR {
+    fn attack(&self) -> u8 {
+        const ATTACK_MASK: u16 = 0b1111000000000000;
+        const ATTACK_SHIFT: u16 = 12;
+        return ((self.data.get() & ATTACK_MASK) >> ATTACK_SHIFT) as u8;
+    }
+
+    fn decay(&self) -> u8 {
+        const DECAY_MASK: u16 = 0b0000111100000000;
+        const DECAY_SHIFT: u16 = 8;
+        return ((self.data.get() & DECAY_MASK) >> DECAY_SHIFT) as u8;
+    }
+
+    fn sustain(&self) -> u8 {
+        const SUSTAIN_MASK: u16 = 0b0000000011110000;
+        const SUSTAIN_SHIFT: u16 = 4;
+        return ((self.data.get() & SUSTAIN_MASK) >> SUSTAIN_SHIFT) as u8;
+    }
+
+    fn release(&self) -> u8 {
+        const RELEASE_MASK: u16 = 0b0000000000001111;
+        return (self.data.get() & RELEASE_MASK) as u8;
+    }
+}
+
+#[derive(Default)]
+#[repr(packed(1))]
+struct Pitch {
+    data: u8,
+}
+
+impl Pitch {
+    fn loop_(&self) -> bool {
+        const LOOP_MASK: u8 = 0b10000000;
+        (self.data & LOOP_MASK) != 0
+    }
+
+    fn note(&self) -> u8 {
+        const NOTE_MASK: u8 = 0b01111111;
+        const NOTE_SHIFT: u8 = 1;
+        (self.data & NOTE_MASK) >> NOTE_SHIFT
+    }
+}
+
+#[derive(Default)]
+#[repr(packed(1))]
+struct Volume {
+    data: u8,
+}
+
+impl Volume {
+    fn left(&self) -> u8 {
+        const LEFT_CHANNEL_MASK: u8 = 0b11110000;
+        const LEFT_CHANNEL_SHIFT: u8 = 4;
+        (self.data & LEFT_CHANNEL_MASK) >> LEFT_CHANNEL_SHIFT
+    }
+
+    fn right(&self) -> u8 {
+        const RIGHT_CHANNEL_MASK: u8 = 0b00001111;
+        self.data & RIGHT_CHANNEL_MASK
+    }
+}
+
+#[derive(Default)]
+#[repr(packed(1))]
+struct Audio {
+    vector: uxn::Short,
+    position: uxn::Short,
+    output: u8,
+    _pad: [u8; 3],
+    adsr: ADSR,
+    length: uxn::Short,
+    addr: uxn::Short,
+    volume: Volume,
+    pitch: Pitch,
+}
+
+#[derive(Default)]
+#[repr(packed(1))]
 struct Controller {
     vector: uxn::Short,
     button: u8,
@@ -904,7 +987,7 @@ struct DeviceIOMemory {
     system: System,
     console: Console,
     screen: screen::IODevice,
-    _audio_pad: [[u8; 0x10]; 4],
+    audio: [Audio; 4],
     _pad: [u8; 0x10],
     controller: Controller,
     mouse: Mouse,
@@ -1106,6 +1189,16 @@ impl uxn::Host for Varvara {
         {
             self.io_memory.screen.height.set(self.frame.height as u16);
             self.io_memory.screen.width.set(self.frame.width as u16);
+        }
+
+        for i in 0..self.io_memory.audio.len() {
+            if targeted_device_field!(target, short_mode, audio, i, output) {
+                // TODO: Update volume
+            }
+
+            if targeted_device_field!(target, short_mode, audio, i, position) {
+                // TODO: Update position
+            }
         }
 
         if short_mode {
@@ -1326,6 +1419,12 @@ impl uxn::Host for Varvara {
         if targeted_device_field!(target, short_mode, system, metadata) {
             self.metadata_update =
                 ProgramMetadata::read_from_uxn(cpu, self.io_memory.system.metadata.get());
+        }
+
+        for i in 0..self.io_memory.audio.len() {
+            if targeted_device_field!(target, short_mode, audio, i, pitch) {
+                // TODO: Play sample
+            }
         }
 
         Some(())
