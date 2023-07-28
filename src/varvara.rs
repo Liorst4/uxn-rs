@@ -404,11 +404,11 @@ impl Frame {
         &mut self,
         layer: Layer,
         sprite: Sprite,
-        x1: u16,
-        y1: u16,
+        start_x: u16,
+        start_y: u16,
         color: u8,
-        flipx: bool,
-        flipy: bool,
+        flip_x: bool,
+        flip_y: bool,
     ) {
         let width = self.width as u16;
         let height = self.height as u16;
@@ -418,24 +418,40 @@ impl Frame {
             Layer::Background => &mut self.background,
         };
 
-        for v in 0..Sprite::HEIGHT {
-            let y: u16 = y1.wrapping_add(if flipy { 7 - v } else { v } as u16);
-            for h in (0..Sprite::WIDTH).rev() {
-                let channel: u8 = sprite.pixel(v, h);
-                if opaque || (channel != 0) {
-                    let x = x1.wrapping_add(if flipx { Sprite::WIDTH - 1 - h } else { h } as u16);
-                    if x < width && y < height {
-                        /// Copied from https://wiki.xxiivv.com/site/varvara.html#screen
-                        const BLENDING: [[u8; 16]; 4] = [
-                            [0, 0, 0, 0, 1, 0, 1, 1, 2, 2, 0, 2, 3, 3, 3, 0],
-                            [0, 1, 2, 3, 0, 1, 2, 3, 0, 1, 2, 3, 0, 1, 2, 3],
-                            [1, 2, 3, 1, 1, 2, 3, 1, 1, 2, 3, 1, 1, 2, 3, 1],
-                            [2, 3, 1, 2, 2, 3, 1, 2, 2, 3, 1, 2, 2, 3, 1, 2],
-                        ];
-                        layer[(x + y * width) as usize] =
-                            BLENDING[channel as usize][color as usize];
-                    }
+        for row in 0..Sprite::HEIGHT {
+            for column in (0..Sprite::WIDTH).rev() {
+                let dx = if flip_x {
+                    Sprite::WIDTH - 1 - column
+                } else {
+                    column
+                } as u16;
+
+                let dy = if flip_y {
+                    Sprite::HEIGHT - 1 - row
+                } else {
+                    row
+                } as u16;
+
+                let x = start_x.wrapping_add(dx);
+                let y = start_y.wrapping_add(dy);
+
+                if x >= width || y >= height {
+                    continue;
                 }
+
+                let channel: u8 = sprite.pixel(row, column);
+                if !opaque && (channel == 0) {
+                    continue;
+                }
+
+                /// Copied from https://wiki.xxiivv.com/site/varvara.html#screen
+                const BLENDING: [[u8; 16]; 4] = [
+                    [0, 0, 0, 0, 1, 0, 1, 1, 2, 2, 0, 2, 3, 3, 3, 0],
+                    [0, 1, 2, 3, 0, 1, 2, 3, 0, 1, 2, 3, 0, 1, 2, 3],
+                    [1, 2, 3, 1, 1, 2, 3, 1, 1, 2, 3, 1, 1, 2, 3, 1],
+                    [2, 3, 1, 2, 2, 3, 1, 2, 2, 3, 1, 2, 2, 3, 1, 2],
+                ];
+                layer[(x + y * width) as usize] = BLENDING[channel as usize][color as usize];
             }
         }
     }
