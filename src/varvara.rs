@@ -451,7 +451,12 @@ impl Frame {
                     [1, 2, 3, 1, 1, 2, 3, 1, 1, 2, 3, 1, 1, 2, 3, 1],
                     [2, 3, 1, 2, 2, 3, 1, 2, 2, 3, 1, 2, 2, 3, 1, 2],
                 ];
-                layer[(x + y * width) as usize] = BLENDING[channel as usize][color as usize];
+
+                let x = x as usize;
+                let y = y as usize;
+                let width = width as usize;
+                layer[x.wrapping_add(y.wrapping_mul(width))] =
+                    BLENDING[channel as usize][color as usize];
             }
         }
     }
