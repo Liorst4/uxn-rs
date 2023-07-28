@@ -410,7 +410,6 @@ impl Frame {
         flipx: bool,
         flipy: bool,
     ) {
-        let mut h;
         let width = self.width as u16;
         let height = self.height as u16;
         let opaque = (color % 5) != 0;
@@ -421,8 +420,7 @@ impl Frame {
 
         for v in 0..Sprite::HEIGHT {
             let y: u16 = y1.wrapping_add(if flipy { 7 - v } else { v } as u16);
-            h = Sprite::WIDTH - 1;
-            'row: loop {
+            for h in (0..Sprite::WIDTH).rev() {
                 let channel: u8 = sprite.pixel(v, h);
                 if opaque || (channel != 0) {
                     let x = x1.wrapping_add(if flipx { Sprite::WIDTH - 1 - h } else { h } as u16);
@@ -438,11 +436,6 @@ impl Frame {
                             BLENDING[channel as usize][color as usize];
                     }
                 }
-
-                if h == 0 {
-                    break 'row;
-                }
-                h -= 1;
             }
         }
     }
