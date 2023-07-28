@@ -203,14 +203,6 @@ impl<'a> Sprite<'a> {
         }
     }
 
-    fn row(&self, v: u8) -> u16 {
-        let v = v as usize;
-        match self {
-            Sprite::ICN(sprite) => sprite[v] as u16,
-            Sprite::CHR(sprite) => sprite[v] as u16 | ((sprite[v + 8] as u16) << 8),
-        }
-    }
-
     fn pixel(&self, y: u8, x: u8) -> u8 {
         assert!(y < Self::HEIGHT && x < Self::WIDTH);
         match self {
@@ -428,12 +420,11 @@ impl Frame {
         };
 
         for v in 0..Sprite::HEIGHT {
-            let mut c: u16 = sprite.row(v);
             let y: u16 = y1.wrapping_add(if flipy { 7 - v } else { v } as u16);
             h = Sprite::WIDTH - 1;
             'row: loop {
-                let ch: u8 = (c & 1) as u8 | ((c >> 7) & 2) as u8;
-                if opaque || (ch != 0) {
+                let channel: u8 = sprite.pixel(v, h);
+                if opaque || (channel != 0) {
                     let x = x1.wrapping_add(if flipx { Sprite::WIDTH - 1 - h } else { h } as u16);
                     if x < width && y < height {
                         /// Copied from https://wiki.xxiivv.com/site/varvara.html#screen
@@ -443,7 +434,8 @@ impl Frame {
                             [1, 2, 3, 1, 1, 2, 3, 1, 1, 2, 3, 1, 1, 2, 3, 1],
                             [2, 3, 1, 2, 2, 3, 1, 2, 2, 3, 1, 2, 2, 3, 1, 2],
                         ];
-                        layer[(x + y * width) as usize] = BLENDING[ch as usize][color as usize];
+                        layer[(x + y * width) as usize] =
+                            BLENDING[channel as usize][color as usize];
                     }
                 }
 
@@ -451,7 +443,6 @@ impl Frame {
                     break 'row;
                 }
                 h -= 1;
-                c >>= 1;
             }
         }
     }
