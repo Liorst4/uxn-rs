@@ -410,7 +410,7 @@ impl Frame {
         flip_x: bool,
         flip_y: bool,
     ) {
-        let opaque = ((blending_color % 5) != 0) || ((!blending_color) != 0);
+        let opaque = (blending_color % 5) != 0;
         let layer = match layer {
             Layer::Forground => &mut self.foreground,
             Layer::Background => &mut self.background,
