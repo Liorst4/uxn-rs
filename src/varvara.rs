@@ -1133,18 +1133,18 @@ struct Varvara {
     metadata_update: Option<ProgramMetadata>,
 }
 
-macro_rules! offset_of_device_field {
-    ($device:ident, $field: ident) => {{
+macro_rules! offset_of_device_port {
+    ($device:ident, $port: ident) => {{
         let base: *const DeviceIOMemory = std::ptr::null();
-        let offset = unsafe { std::ptr::addr_of!((*base).$device.$field) };
+        let offset = unsafe { std::ptr::addr_of!((*base).$device.$port) };
         let offset: usize = unsafe { std::mem::transmute(offset) };
         let offset: u8 = offset as u8;
         offset
         // TODO: Make `offset` a constant
     }};
-    ($device:ident, $device_index:expr, $field: ident) => {{
+    ($device:ident, $device_index:expr, $port: ident) => {{
         let base: *const DeviceIOMemory = std::ptr::null();
-        let offset = unsafe { std::ptr::addr_of!((*base).$device[$device_index].$field) };
+        let offset = unsafe { std::ptr::addr_of!((*base).$device[$device_index].$port) };
         let offset: usize = unsafe { std::mem::transmute(offset) };
         let offset: u8 = offset as u8;
         offset
@@ -1152,17 +1152,17 @@ macro_rules! offset_of_device_field {
     }};
 }
 
-macro_rules! targeted_device_field {
-    ($target:expr, $short_mode:expr, $device:ident, $field: ident) => {{
-        let offset = offset_of_device_field!($device, $field);
+macro_rules! targeted_device_port {
+    ($target:expr, $short_mode:expr, $device:ident, $port: ident) => {{
+        let offset = offset_of_device_port!($device, $port);
         if $short_mode {
             ($target == offset) || ($target > 1 && (($target - 1) == offset))
         } else {
             $target == offset
         }
     }};
-    ($target:expr, $short_mode:expr, $device:ident, $device_index:expr, $field: ident) => {{
-        let offset = offset_of_device_field!($device, $device_index, $field);
+    ($target:expr, $short_mode:expr, $device:ident, $device_index:expr, $port: ident) => {{
+        let offset = offset_of_device_port!($device, $device_index, $port);
         if $short_mode {
             ($target == offset) || ($target > 1 && (($target - 1) == offset))
         } else {
@@ -1173,32 +1173,32 @@ macro_rules! targeted_device_field {
 
 impl uxn::Host for Varvara {
     fn dei(&mut self, _cpu: &mut uxn::Uxn, target: u8, short_mode: bool) -> Option<u16> {
-        if targeted_device_field!(target, short_mode, datetime, year)
-            || targeted_device_field!(target, short_mode, datetime, month)
-            || targeted_device_field!(target, short_mode, datetime, day)
-            || targeted_device_field!(target, short_mode, datetime, hour)
-            || targeted_device_field!(target, short_mode, datetime, minute)
-            || targeted_device_field!(target, short_mode, datetime, second)
-            || targeted_device_field!(target, short_mode, datetime, dotw)
-            || targeted_device_field!(target, short_mode, datetime, doty)
-            || targeted_device_field!(target, short_mode, datetime, isdst)
+        if targeted_device_port!(target, short_mode, datetime, year)
+            || targeted_device_port!(target, short_mode, datetime, month)
+            || targeted_device_port!(target, short_mode, datetime, day)
+            || targeted_device_port!(target, short_mode, datetime, hour)
+            || targeted_device_port!(target, short_mode, datetime, minute)
+            || targeted_device_port!(target, short_mode, datetime, second)
+            || targeted_device_port!(target, short_mode, datetime, dotw)
+            || targeted_device_port!(target, short_mode, datetime, doty)
+            || targeted_device_port!(target, short_mode, datetime, isdst)
         {
             self.io_memory.datetime.update();
         }
 
-        if targeted_device_field!(target, short_mode, screen, width)
-            || targeted_device_field!(target, short_mode, screen, height)
+        if targeted_device_port!(target, short_mode, screen, width)
+            || targeted_device_port!(target, short_mode, screen, height)
         {
             self.io_memory.screen.height.set(self.frame.height as u16);
             self.io_memory.screen.width.set(self.frame.width as u16);
         }
 
         for i in 0..self.io_memory.audio.len() {
-            if targeted_device_field!(target, short_mode, audio, i, output) {
+            if targeted_device_port!(target, short_mode, audio, i, output) {
                 // TODO: Update volume
             }
 
-            if targeted_device_field!(target, short_mode, audio, i, position) {
+            if targeted_device_port!(target, short_mode, audio, i, position) {
                 // TODO: Update position
             }
         }
@@ -1217,19 +1217,19 @@ impl uxn::Host for Varvara {
             self.io_memory.write8(target, value as u8)?;
         }
 
-        if targeted_device_field!(target, short_mode, console, write) {
+        if targeted_device_port!(target, short_mode, console, write) {
             let bytes = [self.io_memory.console.write];
             std::io::stdout().write(&bytes).unwrap();
             std::io::stdout().flush().unwrap();
         }
 
-        if targeted_device_field!(target, short_mode, console, error) {
+        if targeted_device_port!(target, short_mode, console, error) {
             let bytes = [self.io_memory.console.error];
             std::io::stderr().write(&bytes).unwrap();
             std::io::stderr().flush().unwrap();
         }
 
-        if targeted_device_field!(target, short_mode, system, debug)
+        if targeted_device_port!(target, short_mode, system, debug)
             && self.io_memory.system.debug != 0
         {
             eprintln!("Working stack: {}", cpu.working_stack);
@@ -1238,7 +1238,7 @@ impl uxn::Host for Varvara {
         }
 
         for i in 0..self.io_memory.file.len() {
-            if targeted_device_field!(target, short_mode, file, i, name) {
+            if targeted_device_port!(target, short_mode, file, i, name) {
                 || -> Option<()> {
                     let path = self.io_memory.file[i].path(cpu)?;
                     if !path.exists() {
@@ -1272,7 +1272,7 @@ impl uxn::Host for Varvara {
                 }();
             }
 
-            if targeted_device_field!(target, short_mode, file, i, read) {
+            if targeted_device_port!(target, short_mode, file, i, read) {
                 let bytes_read = || -> Option<u16> {
                     match &mut self.open_files[i] {
                         OpenedPath::File { path: _, handle } => handle
@@ -1312,7 +1312,7 @@ impl uxn::Host for Varvara {
                 self.io_memory.file[i].success.set(bytes_read);
             }
 
-            if targeted_device_field!(target, short_mode, file, i, write) {
+            if targeted_device_port!(target, short_mode, file, i, write) {
                 let bytes_written = || -> Option<u16> {
                     match &mut self.open_files[i] {
                         OpenedPath::File { path: _, handle } => {
@@ -1327,7 +1327,7 @@ impl uxn::Host for Varvara {
                 self.io_memory.file[i].success.set(bytes_written);
             }
 
-            if targeted_device_field!(target, short_mode, file, i, stat) {
+            if targeted_device_port!(target, short_mode, file, i, stat) {
                 let bytes_written = || -> Option<u16> {
                     let entry = read_dir_entry(match &self.open_files[i] {
                         OpenedPath::File { path, handle: _ } => Some(path),
@@ -1350,7 +1350,7 @@ impl uxn::Host for Varvara {
                 self.io_memory.file[i].success.set(bytes_written);
             }
 
-            if targeted_device_field!(target, short_mode, file, i, delete)
+            if targeted_device_port!(target, short_mode, file, i, delete)
                 && self.io_memory.file[i].delete != 0
             {
                 match &mut self.open_files[i] {
@@ -1375,9 +1375,9 @@ impl uxn::Host for Varvara {
             }
         }
 
-        if targeted_device_field!(target, short_mode, system, red)
-            || targeted_device_field!(target, short_mode, system, green)
-            || targeted_device_field!(target, short_mode, system, blue)
+        if targeted_device_port!(target, short_mode, system, red)
+            || targeted_device_port!(target, short_mode, system, green)
+            || targeted_device_port!(target, short_mode, system, blue)
         {
             self.frame.set_palette(
                 self.io_memory.system.red.get(),
@@ -1386,27 +1386,27 @@ impl uxn::Host for Varvara {
             );
         }
 
-        if targeted_device_field!(target, short_mode, screen, width)
-            || targeted_device_field!(target, short_mode, screen, height)
+        if targeted_device_port!(target, short_mode, screen, width)
+            || targeted_device_port!(target, short_mode, screen, height)
         {
             let width = self.io_memory.screen.width.get();
             let height = self.io_memory.screen.height.get();
             self.frame.resize(width, height);
         }
 
-        if targeted_device_field!(target, short_mode, screen, pixel) {
+        if targeted_device_port!(target, short_mode, screen, pixel) {
             self.io_memory.screen.draw_pixel(&mut self.frame);
         }
 
-        if targeted_device_field!(target, short_mode, screen, sprite) {
+        if targeted_device_port!(target, short_mode, screen, sprite) {
             self.io_memory.screen.draw_sprite(cpu, &mut self.frame);
         }
 
-        if targeted_device_field!(target, short_mode, system, expansion) {
+        if targeted_device_port!(target, short_mode, system, expansion) {
             ExpansionCommand::perform(cpu, self, self.io_memory.system.expansion.get());
         }
 
-        if targeted_device_field!(target, short_mode, system, friend) {
+        if targeted_device_port!(target, short_mode, system, friend) {
             let entry_point = self.io_memory.system.friend.get();
             if entry_point != 0 {
                 // TODO: Don't copy ram between instances
@@ -1418,13 +1418,13 @@ impl uxn::Host for Varvara {
             }
         }
 
-        if targeted_device_field!(target, short_mode, system, metadata) {
+        if targeted_device_port!(target, short_mode, system, metadata) {
             self.metadata_update =
                 ProgramMetadata::read_from_uxn(cpu, self.io_memory.system.metadata.get());
         }
 
         for i in 0..self.io_memory.audio.len() {
-            if targeted_device_field!(target, short_mode, audio, i, pitch) {
+            if targeted_device_port!(target, short_mode, audio, i, pitch) {
                 // TODO: Play sample
             }
         }
@@ -1726,7 +1726,7 @@ fn main() {
 
     host.deo(
         &mut vm,
-        offset_of_device_field!(screen, width),
+        offset_of_device_port!(screen, width),
         WIDTH as u16,
         true,
     )
@@ -1734,7 +1734,7 @@ fn main() {
 
     host.deo(
         &mut vm,
-        offset_of_device_field!(screen, height),
+        offset_of_device_port!(screen, height),
         HEIGHT as u16,
         true,
     )
