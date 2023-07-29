@@ -1,7 +1,7 @@
 Implementation of the UXN virtual machine in the Rust programming language.
 
-This project is in an early stage, the current implementation only supports
-the System, Console, File and Datetime devices (like uxncli.c)
+This project is still work in progress, the current implementation supports
+all the devices except for audio.
 
 Project goals:
 To have fun.
