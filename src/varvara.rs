@@ -1138,14 +1138,12 @@ macro_rules! offset_of_device_port {
     ($device:ident, $port: ident) => {{
         let base: *const DeviceIOMemory = std::ptr::null();
         let offset = unsafe { std::ptr::addr_of!((*base).$device.$port) };
-        let offset: usize = unsafe { std::mem::transmute(offset) };
         let offset: u8 = offset as u8;
         offset
     }};
     ($device:ident, $device_index:expr, $port: ident) => {{
         let base: *const DeviceIOMemory = std::ptr::null();
         let offset = unsafe { std::ptr::addr_of!((*base).$device[$device_index].$port) };
-        let offset: usize = unsafe { std::mem::transmute(offset) };
         let offset: u8 = offset as u8;
         offset
     }};
