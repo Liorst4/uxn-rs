@@ -1133,6 +1133,7 @@ struct Varvara {
     metadata_update: Option<ProgramMetadata>,
 }
 
+// TODO: Replace with `std::mem::offset_of` when it becomes stable.
 macro_rules! offset_of_device_port {
     ($device:ident, $port: ident) => {{
         let base: *const DeviceIOMemory = std::ptr::null();
@@ -1140,7 +1141,6 @@ macro_rules! offset_of_device_port {
         let offset: usize = unsafe { std::mem::transmute(offset) };
         let offset: u8 = offset as u8;
         offset
-        // TODO: Make `offset` a constant
     }};
     ($device:ident, $device_index:expr, $port: ident) => {{
         let base: *const DeviceIOMemory = std::ptr::null();
@@ -1148,7 +1148,6 @@ macro_rules! offset_of_device_port {
         let offset: usize = unsafe { std::mem::transmute(offset) };
         let offset: u8 = offset as u8;
         offset
-        // TODO: Make `offset` a constant
     }};
 }
 
