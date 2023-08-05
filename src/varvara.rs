@@ -704,13 +704,18 @@ impl Screen {
     pub fn draw_sprite(&mut self, uxn: &mut uxn::Uxn, frame: &mut Frame) {
         let ctrl = &self.sprite;
         let move_ = &self.auto;
-        let length = move_.length();
+        let length = move_.length() as i16;
         let x = self.x.get();
         let y = self.y.get();
         let mut addr = self.addr.get();
-        let dx = if move_.x() { Sprite::WIDTH as u16 } else { 0 };
-        let dy = if move_.y() { Sprite::HEIGHT as u16 } else { 0 };
+        let dx: i16 = if move_.x() { Sprite::WIDTH as i16 } else { 0 };
+        let dy: i16 = if move_.y() { Sprite::HEIGHT as i16 } else { 0 };
         let layer = ctrl.layer();
+
+        let flip_x = ctrl.flip_x();
+        let flip_y = ctrl.flip_y();
+        let fx: i16 = if flip_x { -1 } else { 1 };
+        let fy: i16 = if flip_y { -1 } else { 1 };
 
         for i in 0..(length + 1) {
             let sprite = Sprite::in_uxn(uxn, addr, ctrl.mode()).unwrap();
@@ -719,11 +724,11 @@ impl Screen {
             frame.blit(
                 layer,
                 sprite,
-                x + (dy * i as u16),
-                y + (dx * i as u16),
+                x.wrapping_add_signed(dy * i * fx),
+                y.wrapping_add_signed(dx * i * fy),
                 ctrl.blending(),
-                ctrl.flip_x(),
-                ctrl.flip_y(),
+                flip_x,
+                flip_y,
             );
 
             if move_.addr() {
@@ -734,16 +739,16 @@ impl Screen {
         frame.set_the_delta_area(
             x as usize,
             y as usize,
-            x as usize + dy as usize * length as usize + Sprite::HEIGHT as usize,
-            y as usize + dx as usize * length as usize + Sprite::WIDTH as usize,
+            x.wrapping_add_signed(dy * length * fx + Sprite::HEIGHT as i16) as usize,
+            y.wrapping_add_signed(dx * length * fy + Sprite::WIDTH as i16) as usize,
         );
 
         if move_.x() {
-            self.x.set(x.wrapping_add(dx as u16));
+            self.x.set(x.wrapping_add_signed(dx * fx));
         }
 
         if move_.y() {
-            self.y.set(y.wrapping_add(dy as u16));
+            self.y.set(y.wrapping_add_signed(dy * fy));
         }
 
         if move_.addr() {
